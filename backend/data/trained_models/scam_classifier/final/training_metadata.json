@@ -1,0 +1,7 @@
+{
+  "base_model": "cross-encoder/nli-distilroberta-base",
+  "dataset_size": 62,
+  "best_val_f1": 0.8,
+  "best_val_acc": 0.7692307692307693,
+  "epochs_trained": 10
+}

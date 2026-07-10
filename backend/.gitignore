@@ -1,0 +1,32 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python caches and virtualenvs
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+venv/
+.venv/
+env/
+
+# Runtime data and generated indexes
+model_cache/
+data/chroma_db/
+data/app.db
+data/*.db
+data/*.sqlite*
+data/data/
+
+# Large trained weights; keep scripts, metadata, and small configs tracked
+data/trained_models/**/*.pth
+data/trained_models/**/*.pt
+data/trained_models/**/*.bin
+data/trained_models/**/*.safetensors
+
+# Logs
+logs/
+*.log

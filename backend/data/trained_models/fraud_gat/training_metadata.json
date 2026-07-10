@@ -1,0 +1,12 @@
+{
+  "architecture": "Graph Attention Network (GAT)",
+  "layers": 2,
+  "attention_heads": 4,
+  "hidden_dim": 32,
+  "input_features": 8,
+  "total_parameters": 1410,
+  "epochs_trained": 200,
+  "best_val_f1": 0.8571428571428571,
+  "graph_nodes": 19,
+  "graph_edges": 64
+}

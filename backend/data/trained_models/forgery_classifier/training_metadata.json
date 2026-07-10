@@ -1,0 +1,13 @@
+{
+  "architecture": "EfficientNet-B0 + Transformer Attention (Hybrid)",
+  "training_phases": [
+    "SimCLR contrastive",
+    "Supervised fine-tuning"
+  ],
+  "contrastive_epochs": 5,
+  "supervised_epochs": 10,
+  "best_val_f1": 1.0,
+  "dataset_size": 100,
+  "image_size": 224,
+  "feature_dim": 1280
+}

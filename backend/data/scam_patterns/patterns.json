@@ -1,0 +1,226 @@
+[
+  {
+    "id": "da_001",
+    "text": "This is Inspector Sharma from CBI Cyber Cell. Your Aadhaar number has been used to open 17 bank accounts linked to money laundering. An arrest warrant has been issued.",
+    "category": "digital_arrest",
+    "severity": "critical",
+    "source": "MHA_advisory_2024",
+    "patterns": ["authority_impersonation", "fear_creation", "aadhaar_misuse"]
+  },
+  {
+    "id": "da_002",
+    "text": "I am calling from the Supreme Court. A case has been filed against you under PMLA Act Section 45. You must stay on this video call for verification. Do NOT disconnect.",
+    "category": "digital_arrest",
+    "severity": "critical",
+    "source": "MHA_advisory_2024",
+    "patterns": ["authority_impersonation", "legal_threats", "isolation"]
+  },
+  {
+    "id": "da_003",
+    "text": "Your bank account has been flagged for suspicious activity by RBI. To avoid arrest, transfer your funds to this RBI safe custody account for verification within 30 minutes.",
+    "category": "digital_arrest",
+    "severity": "critical",
+    "source": "RBI_fraud_bulletin",
+    "patterns": ["urgency", "financial_demand", "authority_impersonation"]
+  },
+  {
+    "id": "da_004",
+    "text": "We have found drugs in a parcel with your name on it at Mumbai customs. This is a serious NDPS Act violation. You will be arrested if you do not cooperate immediately.",
+    "category": "digital_arrest",
+    "severity": "critical",
+    "source": "MHA_advisory_2024",
+    "patterns": ["parcel_scam", "drug_threats", "fear_creation"]
+  },
+  {
+    "id": "da_005",
+    "text": "This call is being monitored by CBI. If you disconnect or tell anyone about this call, it will be considered evidence tampering under Section 201 IPC.",
+    "category": "digital_arrest",
+    "severity": "critical",
+    "source": "victim_report",
+    "patterns": ["secrecy_demand", "legal_threats", "isolation"]
+  },
+  {
+    "id": "da_006",
+    "text": "We need to verify your identity through video call. Show your Aadhaar card and PAN card to the camera. This is mandatory under new KYC regulations.",
+    "category": "digital_arrest",
+    "severity": "high",
+    "source": "RBI_advisory",
+    "patterns": ["document_harvesting", "fake_kyc", "authority_impersonation"]
+  },
+  {
+    "id": "da_007",
+    "text": "An FIR number 2847/2024 has been registered against you at Cyber Crime Police Station Delhi. Officers have been dispatched. Only way to stop arrest is immediate compliance.",
+    "category": "digital_arrest",
+    "severity": "critical",
+    "source": "victim_report",
+    "patterns": ["fake_fir", "urgency", "fear_creation"]
+  },
+  {
+    "id": "da_008",
+    "text": "I am DSP Rajesh Kumar, badge number 4521. Your son has been detained in a drug case. To secure bail, you need to deposit Rs 2 lakhs in court account immediately.",
+    "category": "digital_arrest",
+    "severity": "critical",
+    "source": "victim_report",
+    "patterns": ["family_threat", "bail_scam", "urgency"]
+  },
+  {
+    "id": "fin_001",
+    "text": "Congratulations! You have been selected for a guaranteed investment scheme with 40% monthly returns. Invest minimum Rs 50,000 today. Limited spots available.",
+    "category": "investment_fraud",
+    "severity": "high",
+    "source": "SEBI_advisory",
+    "patterns": ["unrealistic_returns", "urgency", "minimum_investment"]
+  },
+  {
+    "id": "fin_002",
+    "text": "Your credit card has been compromised. To block unauthorized transactions, share your OTP and CVV immediately. This is from SBI fraud department.",
+    "category": "banking_fraud",
+    "severity": "critical",
+    "source": "RBI_advisory",
+    "patterns": ["otp_harvesting", "urgency", "bank_impersonation"]
+  },
+  {
+    "id": "fin_003",
+    "text": "You have won Rs 25 lakh in Kaun Banega Crorepati lottery. To claim your prize, pay processing fee of Rs 15,000 via UPI to this number.",
+    "category": "lottery_scam",
+    "severity": "high",
+    "source": "consumer_forum",
+    "patterns": ["lottery_prize", "advance_fee", "urgency"]
+  },
+  {
+    "id": "fin_004",
+    "text": "Dear customer, your SBI account will be blocked in 24 hours. Click this link to update your KYC: http://sbi-kyc-update.com. Failure to update will result in account freeze.",
+    "category": "phishing",
+    "severity": "high",
+    "source": "CERT-In",
+    "patterns": ["fake_link", "urgency", "bank_impersonation"]
+  },
+  {
+    "id": "fin_005",
+    "text": "Hi, this is Amazon customer care. We noticed a purchase of Rs 49,999 from your account. If not done by you, press 1 to cancel and get refund.",
+    "category": "refund_scam",
+    "severity": "high",
+    "source": "consumer_report",
+    "patterns": ["fake_purchase", "refund_bait", "brand_impersonation"]
+  },
+  {
+    "id": "job_001",
+    "text": "Work from home opportunity! Earn Rs 5000-15000 daily by doing simple data entry tasks. No experience needed. Pay registration fee of Rs 2000 to start.",
+    "category": "job_scam",
+    "severity": "medium",
+    "source": "consumer_forum",
+    "patterns": ["unrealistic_salary", "advance_fee", "no_experience"]
+  },
+  {
+    "id": "job_002",
+    "text": "Selected for Google internship program. Salary Rs 1.5 LPA. Complete online training by paying Rs 8000 certification fee. Offer valid 48 hours only.",
+    "category": "job_scam",
+    "severity": "high",
+    "source": "victim_report",
+    "patterns": ["brand_impersonation", "advance_fee", "urgency"]
+  },
+  {
+    "id": "rom_001",
+    "text": "I am a US Army officer stationed in Syria. I have $2 million in gold bars that I need to ship to India. I need Rs 5 lakh for customs clearance. I will share the profits with you.",
+    "category": "romance_scam",
+    "severity": "high",
+    "source": "interpol_advisory",
+    "patterns": ["military_impersonation", "advance_fee", "foreign_money"]
+  },
+  {
+    "id": "tech_001",
+    "text": "Your computer has been infected with a dangerous virus. Call Microsoft support immediately at 1-800-XXX. Our technician will fix it remotely. Service charge Rs 3000.",
+    "category": "tech_support_scam",
+    "severity": "medium",
+    "source": "microsoft_advisory",
+    "patterns": ["fake_virus", "brand_impersonation", "remote_access"]
+  },
+  {
+    "id": "ext_001",
+    "text": "We have recorded your private video through your webcam. Pay Rs 50,000 in Bitcoin within 48 hours or we will send it to all your contacts. Do not contact police.",
+    "category": "sextortion",
+    "severity": "critical",
+    "source": "cyber_police",
+    "patterns": ["blackmail", "cryptocurrency_demand", "secrecy_demand"]
+  },
+  {
+    "id": "cust_001",
+    "text": "Your electricity bill of Rs 12,547 is overdue. Your power supply will be disconnected in 2 hours. Pay immediately through this link to avoid disconnection.",
+    "category": "utility_scam",
+    "severity": "medium",
+    "source": "consumer_forum",
+    "patterns": ["urgency", "fake_bill", "disconnection_threat"]
+  },
+  {
+    "id": "cust_002",
+    "text": "TRAI has decided to disconnect your mobile number within 2 hours due to illegal activities detected. Press 1 to speak to officer or your number will be permanently blocked.",
+    "category": "telecom_scam",
+    "severity": "high",
+    "source": "TRAI_advisory",
+    "patterns": ["authority_impersonation", "disconnection_threat", "urgency"]
+  },
+  {
+    "id": "leg_001",
+    "text": "Good afternoon, thank you for calling State Bank customer service. My name is Priya, employee ID 45221. How can I help you today?",
+    "category": "legitimate",
+    "severity": "none",
+    "source": "training_data",
+    "patterns": ["professional_greeting", "employee_id", "assistance_offer"]
+  },
+  {
+    "id": "leg_002",
+    "text": "This is a reminder that your home loan EMI of Rs 25,000 is due on the 5th. Please ensure sufficient balance. Contact your branch for any queries.",
+    "category": "legitimate",
+    "severity": "none",
+    "source": "training_data",
+    "patterns": ["factual_reminder", "no_pressure", "branch_reference"]
+  },
+  {
+    "id": "leg_003",
+    "text": "Dear customer, your fixed deposit of Rs 5,00,000 is maturing on 15th July. Visit your nearest branch with your ID to renew or withdraw. Branch hours: 10 AM to 4 PM.",
+    "category": "legitimate",
+    "severity": "none",
+    "source": "training_data",
+    "patterns": ["factual_info", "branch_visit", "no_urgency"]
+  },
+  {
+    "id": "leg_004",
+    "text": "Your order #12345 has been shipped via BlueDart. Tracking ID: BD789456123. Expected delivery: 3-5 business days. For queries, visit our help center.",
+    "category": "legitimate",
+    "severity": "none",
+    "source": "training_data",
+    "patterns": ["order_confirmation", "tracking_info", "standard_timeline"]
+  },
+  {
+    "id": "leg_005",
+    "text": "We noticed a login from a new device on your account. If this was you, no action needed. If not, change your password at our official website and contact support.",
+    "category": "legitimate",
+    "severity": "none",
+    "source": "training_data",
+    "patterns": ["security_alert", "no_link", "self_service"]
+  },
+  {
+    "id": "leg_006",
+    "text": "Your insurance policy renewal is due next month. Premium amount: Rs 12,000. You can renew online or visit any branch. No late fees if renewed within 30 days of expiry.",
+    "category": "legitimate",
+    "severity": "none",
+    "source": "training_data",
+    "patterns": ["factual_info", "no_pressure", "multiple_options"]
+  },
+  {
+    "id": "leg_007",
+    "text": "Thank you for your payment of Rs 3,500 towards your credit card bill. Your available credit limit is now Rs 1,50,000. Next statement date: August 1.",
+    "category": "legitimate",
+    "severity": "none",
+    "source": "training_data",
+    "patterns": ["payment_confirmation", "balance_info", "next_date"]
+  },
+  {
+    "id": "leg_008",
+    "text": "Hi, I wanted to check if you received the documents I sent yesterday. The meeting is scheduled for Thursday at 3 PM. Let me know if the time works for you.",
+    "category": "legitimate",
+    "severity": "none",
+    "source": "training_data",
+    "patterns": ["normal_conversation", "meeting_schedule", "polite_inquiry"]
+  }
+]
