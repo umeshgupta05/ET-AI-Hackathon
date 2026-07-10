@@ -11,6 +11,7 @@ Usage:
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Fix Windows encoding
@@ -184,9 +185,12 @@ def train():
     metadata = {
         "base_model": BASE_MODEL,
         "dataset_size": len(texts),
+        "scam_count": int(sum(labels)),
+        "legitimate_count": int(len(labels) - sum(labels)),
         "best_val_f1": best_f1,
         "best_val_acc": val_acc,
         "epochs_trained": epoch + 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     with open(final_path / "training_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)

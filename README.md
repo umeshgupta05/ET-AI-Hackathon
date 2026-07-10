@@ -10,12 +10,12 @@ A **multi-agent AI system** — not a rules engine. Every verdict is produced by
 
 | Agent | Models | Purpose |
 |-------|--------|---------|
-| **Vision Agent** | YOLOv8 + EfficientNet + Contrastive Learning + ELA + FFT + NPR + Grad-CAM + CLIP | Counterfeit currency & deepfake document detection |
+| **Vision Agent** | YOLOv8 + EfficientNet + Transformer Attention + Contrastive Learning + ELA + FFT + NPR + CLIP + Grad-CAM | Counterfeit currency & deepfake document detection |
 | **Speech Agent** | Whisper + WavLM/AASIST | Voice transcription & spoofing detection |
 | **NLP Agent** | Kimi K2 (Multi-Role CoT) + DistilBERT + RAG + ChromaDB | Scam pattern analysis with agentic reasoning |
-| **Fusion Orchestrator** | LLM-based routing + XGBoost stacking + Isotonic calibration | Multi-agent verdict fusion |
+| **Fusion Orchestrator** | LangGraph routing + XGBoost stacking + weighted fallback + Isotonic calibration | Multi-agent verdict fusion |
 
-**17 distinct AI techniques** across 5 AI domains. All at **$0.00 cost** (free-tier APIs + open-weight models).
+**21 distinct AI techniques/signals** across 5 AI domains. All at **$0.00 cost** (free-tier APIs + open-weight models).
 
 ---
 
@@ -41,6 +41,18 @@ copy .env.example .env
 # Run server
 python main.py
 ```
+
+---
+
+## ML Upgrade Status
+
+- Text dataset generator now writes the full balanced corpus: 240 records across digital arrest, financial fraud, impersonation, KYC/OTP, parcel/customs, job/investment scams, and legitimate-service calls.
+- Vision synthetic currency generation now produces 500 images: 250 genuine and 250 counterfeit with richer blur, noise, color-shift, security-thread, watermark, and print-defect variations.
+- Graph training now uses an expanded fraud graph with 69 nodes and 212 adjacency edges, with metadata saved beside the trained GAT artifacts.
+- Vision analysis includes a lazy CLIP/open-clip zero-shot signal when `open-clip-torch` and model weights are available. If CLIP cannot load, the app continues with the trained classifier and forensic stack.
+- Fusion includes an optional XGBoost meta-learner. If `backend/data/trained_models/xgboost_fusion/model.json` is missing or cannot load, the orchestrator falls back to the existing weighted fusion path.
+
+Large generated model weights, local databases, `.env`, `node_modules`, and frontend build output are intentionally ignored by Git. Training scripts regenerate those artifacts locally. CPU-only full retraining may take longer, so smoke training remains available for quick validation.
 
 ### 2. Frontend
 

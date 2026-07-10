@@ -27,6 +27,7 @@ from agents.speech_agent import SpeechAgent
 from agents.nlp_agent import NLPAgent
 from agents.graph_agent import GraphAgent, get_graph_agent
 from agents.calibration import CalibrationLayer, get_calibration_layer
+from agents.ensemble import get_xgboost_fusion
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -66,9 +67,13 @@ class FraudAnalysisState(TypedDict, total=False):
 
     # ─── Fusion ───
     fused_score: float
+    base_weighted_score: float
     verdict: str
     per_agent_scores: dict
     per_agent_weights: dict
+    fusion_method: str
+    xgboost_features: dict
+    raw_xgboost_score: Optional[float]
 
     # ─── Calibration ───
     calibrated_score: float
@@ -167,6 +172,7 @@ class FusionOrchestrator:
         self._nlp_agent = NLPAgent()
         self._graph_agent = get_graph_agent()
         self._calibration = get_calibration_layer()
+        self._ensemble = get_xgboost_fusion()
         self._initialized = False
         self._graph = None
 
@@ -182,6 +188,7 @@ class FusionOrchestrator:
         await self._graph_agent.initialize()
         # Calibration layer
         self._calibration.initialize()
+        self._ensemble.initialize()
         # Build the LangGraph state machine
         self._graph = self._build_graph()
 
@@ -352,7 +359,7 @@ class FusionOrchestrator:
                 "step": "vision_agent",
                 "verdict": vision_result.get("verdict"),
                 "confidence": vision_result.get("model_confidence"),
-                "techniques": ["YOLOv8", "EfficientNet+Transformer", "ELA", "FFT", "NPR", "Grad-CAM"],
+                "techniques": ["YOLOv8", "EfficientNet+Transformer", "ELA", "FFT", "NPR", "CLIP", "Grad-CAM"],
                 "timestamp": time.time() - start_time,
             }
             return {
@@ -487,14 +494,20 @@ class FusionOrchestrator:
             weights["graph"] = 0.10
 
         if not scores:
-            fused_score = 0.5
+            base_score = 0.5
             verdict = "no_analysis"
         else:
+            verdict = "pending"
             total_weight = sum(weights.values())
-            fused_score = sum(
+            base_score = sum(
                 scores[agent] * weights[agent] for agent in scores
             ) / total_weight
 
+        ensemble_result = self._ensemble.predict(state, base_score)
+        fused_score = ensemble_result["score"]
+        fusion_method = ensemble_result["method"]
+
+        if verdict != "no_analysis":
             if fused_score > config.orchestrator.high_risk_threshold:
                 verdict = "high_risk"
             elif fused_score > config.orchestrator.medium_risk_threshold:
@@ -507,16 +520,23 @@ class FusionOrchestrator:
         trace_entry = {
             "step": "fusion",
             "fused_score": round(fused_score, 4),
+            "base_weighted_score": round(base_score, 4),
+            "fusion_method": fusion_method,
             "verdict": verdict,
             "per_agent_scores": {k: round(v, 4) for k, v in scores.items()},
+            "xgboost_available": ensemble_result.get("model_available", False),
             "timestamp": time.time() - start_time,
         }
 
         return {
             "fused_score": round(float(fused_score), 4),
+            "base_weighted_score": round(float(base_score), 4),
             "verdict": verdict,
             "per_agent_scores": {k: round(v, 4) for k, v in scores.items()},
             "per_agent_weights": weights,
+            "fusion_method": fusion_method,
+            "xgboost_features": ensemble_result["features"],
+            "raw_xgboost_score": ensemble_result.get("raw_xgboost_score"),
             "trace": state.get("trace", []) + [trace_entry],
         }
 
@@ -672,9 +692,13 @@ class FusionOrchestrator:
             },
             "fusion_details": {
                 "fused_score": final_state.get("fused_score", 0.5),
+                "base_weighted_score": final_state.get("base_weighted_score", 0.5),
                 "verdict": final_state.get("verdict", "unknown"),
                 "per_agent_scores": final_state.get("per_agent_scores", {}),
                 "per_agent_weights": final_state.get("per_agent_weights", {}),
+                "fusion_method": final_state.get("fusion_method", "weighted_fallback"),
+                "xgboost_features": final_state.get("xgboost_features", {}),
+                "raw_xgboost_score": final_state.get("raw_xgboost_score"),
             },
             "trace": final_state.get("trace", []),
             "processing_time_seconds": round(processing_time, 2),
@@ -698,6 +722,7 @@ class FusionOrchestrator:
                 "nlp": self._nlp_agent.get_stats(),
                 "graph": self._graph_agent.get_stats(),
             },
+            "ensemble": self._ensemble.get_stats(),
             "graph_topology": {
                 "type": "StateGraph with conditional edges",
                 "nodes": 9,
@@ -705,5 +730,5 @@ class FusionOrchestrator:
                 "cyclic": True,
                 "self_correction": "Evaluator loops back for ambiguous verdicts",
             },
-            "total_ai_techniques": 19,
+            "total_ai_techniques": 21,
         }

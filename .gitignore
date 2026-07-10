@@ -45,6 +45,7 @@ backend/data/trained_models/**/*.pt
 backend/data/trained_models/**/*.bin
 backend/data/trained_models/**/*.safetensors
 backend/data/data/
+yolov*.pt
 
 # OS / editor
 .DS_Store

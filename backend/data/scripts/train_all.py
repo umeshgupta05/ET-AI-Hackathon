@@ -8,11 +8,12 @@ Usage:
     python data/scripts/train_all.py
 
 This will:
-1. Generate the scam text dataset (62 samples)
-2. Generate synthetic currency images (100 images)
+1. Generate the scam text dataset (240+ samples)
+2. Generate synthetic currency images (500 images)
 3. Fine-tune DistilBERT for scam detection
 4. Train Hybrid CNN-Transformer for forgery detection
 5. Train GAT for fraud network classification
+6. Train XGBoost fusion meta-learner
 """
 
 import sys
@@ -77,6 +78,17 @@ def main():
         print("   This might need: pip install networkx torch")
 
     # ─── Summary ──────────────────────────────────────────────
+    print("\n\n" + "â–¶" * 35)
+    print("STEP 5: Training XGBoost Fusion Meta-Learner")
+    print("â–¶" * 35)
+
+    try:
+        from train_xgboost_fusion import train as train_xgboost
+        train_xgboost(smoke=False)
+    except Exception as e:
+        print(f"âš ï¸ XGBoost fusion training failed: {e}")
+        print("   This might need: pip install xgboost")
+
     elapsed = time.time() - start
     print("\n\n" + "=" * 70)
     print(f"✅ ALL TRAINING COMPLETE — {elapsed:.1f}s total")

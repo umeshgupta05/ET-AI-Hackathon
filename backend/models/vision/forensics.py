@@ -299,15 +299,22 @@ class ForensicAnalyzer:
                 shifted = np.roll(np.roll(gray, -dy, axis=0), -dx, axis=1)
                 npr_map = gray - shifted
 
-            # Trim edges affected by rolling
-            if dy > 0:
-                npr_map = npr_map[:-1, :]
+                # Trim edges affected by rolling.
+                if dy > 0:
+                    npr_map = npr_map[:-1, :]
                 if dx > 0:
                     npr_map = npr_map[:, :-1]
                 elif dx < 0:
                     npr_map = npr_map[:, 1:]
 
                 npr_maps.append(npr_map)
+
+            if not npr_maps:
+                return {
+                    "synthetic_score": 0.5,
+                    "relationship_map": None,
+                    "statistics": {},
+                }
 
             # Analyze NPR statistics
             # Genuine/real content: NPR follows a Laplacian-like distribution
@@ -338,30 +345,25 @@ class ForensicAnalyzer:
                 synthetic_score += 0.15
                 if checkerboard_score > 0.3:
                     synthetic_score += 0.2
-                    if (
-                        mean_npr < 5.0
-                    ):  # Very low NPR differences = suspicious smoothness
+                    if mean_npr < 5.0:  # Very low NPR differences = suspicious smoothness
                         synthetic_score += 0.1
 
-                    synthetic_score = min(synthetic_score, 1.0)
+            synthetic_score = min(synthetic_score, 1.0)
 
-                # Create NPR visualization
-                if len(npr_maps) > 0:
-                    vis = np.abs(npr_maps[0])
-                    vis = (vis / (vis.max() + 1e-8) * 255).astype(np.uint8)
-                else:
-                    vis = None
+            # Create NPR visualization.
+            vis = np.abs(npr_maps[0])
+            vis = (vis / (vis.max() + 1e-8) * 255).astype(np.uint8)
 
-                return {
-                    "synthetic_score": round(synthetic_score, 4),
-                    "relationship_map": vis,
-                    "statistics": {
-                        "mean_npr": round(mean_npr, 4),
-                        "std_npr": round(std_npr, 4),
-                        "kurtosis": round(kurtosis, 4),
-                        "checkerboard_score": round(checkerboard_score, 4),
-                    },
-                }
+            return {
+                "synthetic_score": round(synthetic_score, 4),
+                "relationship_map": vis,
+                "statistics": {
+                    "mean_npr": round(mean_npr, 4),
+                    "std_npr": round(std_npr, 4),
+                    "kurtosis": round(kurtosis, 4),
+                    "checkerboard_score": round(checkerboard_score, 4),
+                },
+            }
 
         except Exception as e:
             logger.warning(f"NPR analysis failed: {e}")

@@ -15,6 +15,7 @@ The trained model is saved to data/trained_models/forgery_classifier/
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Fix Windows encoding
@@ -29,7 +30,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from PIL import Image
+from PIL import Image, ImageFilter
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score
 
@@ -43,6 +44,7 @@ EPOCHS_SUPERVISED = 10   # Supervised fine-tuning epochs
 LEARNING_RATE = 1e-4
 TEMPERATURE = 0.07       # SimCLR temperature
 SEED = 42
+SYNTHETIC_PER_CLASS = int(os.getenv("SYNTHETIC_PER_CLASS", "250"))
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)
@@ -163,7 +165,11 @@ def generate_synthetic_data():
     genuine_dir.mkdir(parents=True, exist_ok=True)
     counterfeit_dir.mkdir(parents=True, exist_ok=True)
 
-    for i in range(50):
+    for folder in (genuine_dir, counterfeit_dir):
+        for image_path in folder.glob("*.png"):
+            image_path.unlink()
+
+    for i in range(SYNTHETIC_PER_CLASS):
         # Genuine: clean, structured patterns
         img = np.random.randint(200, 240, (224, 224, 3), dtype=np.uint8)
         # Add "watermark" pattern
@@ -172,11 +178,18 @@ def generate_synthetic_data():
         img[180:195, 20:180, :] = [100, 100, 100]
         # Add fine grid (security feature)
         img[80:160:4, 30:190, :] = [190, 190, 190]
+        img[32:190, 112:116, :] = [110, 130, 145]
+        img[120:136, 140:190, :] = [145, 172, 120]
+        img = np.clip(
+            img.astype(np.int16) + np.random.randint(-5, 6, img.shape),
+            0,
+            255,
+        ).astype(np.uint8)
 
         pil_img = Image.fromarray(img)
         pil_img.save(genuine_dir / f"genuine_{i:03d}.png")
 
-    for i in range(50):
+    for i in range(SYNTHETIC_PER_CLASS):
         # Counterfeit: noisy, inconsistent patterns
         img = np.random.randint(180, 250, (224, 224, 3), dtype=np.uint8)
         # Blurred "watermark"
@@ -186,12 +199,16 @@ def generate_synthetic_data():
         img[180 + offset:195 + offset, 20:180, :] = np.random.randint(80, 120, (15, 160, 3), dtype=np.uint8)
         # No security grid (or random noise)
         img[80:160, 30:190, :] += np.random.randint(0, 30, (80, 160, 3), dtype=np.uint8).clip(0, 255)
+        if i % 3 == 0:
+            img = np.array(Image.fromarray(img).filter(ImageFilter.GaussianBlur(radius=1.2)))
+        if i % 4 == 0:
+            img[:, :, 1] = np.clip(img[:, :, 1].astype(np.int16) + 24, 0, 255)
 
         pil_img = Image.fromarray(img.clip(0, 255).astype(np.uint8))
         pil_img.save(counterfeit_dir / f"counterfeit_{i:03d}.png")
 
-    print(f"  ✅ Generated 50 genuine + 50 counterfeit synthetic images")
-    print(f"  📌 Replace with real images for production accuracy")
+    print(f"  Generated {SYNTHETIC_PER_CLASS} genuine + {SYNTHETIC_PER_CLASS} counterfeit synthetic images")
+    print("  Replace synthetic images with real notes for production accuracy")
 
 
 # ─── Training Functions ──────────────────────────────────────────────────
@@ -432,8 +449,11 @@ def train():
         "supervised_epochs": EPOCHS_SUPERVISED,
         "best_val_f1": best_f1,
         "dataset_size": len(paths),
+        "genuine_count": int(sum(1 for label in labels if label == 0)),
+        "counterfeit_count": int(sum(1 for label in labels if label == 1)),
         "image_size": IMAGE_SIZE,
         "feature_dim": feature_dim,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     with open(OUTPUT_DIR / "training_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)

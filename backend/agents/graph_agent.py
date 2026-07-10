@@ -286,9 +286,36 @@ class GraphAgent:
             ("acct_L02", {"type": "account", "label": "legitimate", "inflow": 75000, "outflow": 70000, "tx_count": 8, "unique_senders": 4, "age_days": 2000, "dormant_ratio": 0.15}),
         ]
 
+        scam_phones_3 = [
+            (f"phone_S3_{i:02d}", {"type": "phone", "label": "scammer", "call_count": 35 + i * 7, "avg_duration": 18 + i, "blocked_count": 4 + i % 8, "reported_count": 3 + i % 6, "international": i % 2, "voip": 1})
+            for i in range(1, 11)
+        ]
+        mule_accounts_3 = [
+            (f"acct_M3_{i:02d}", {"type": "account", "label": "mule", "inflow": 240000 + i * 82000, "outflow": 220000 + i * 78000, "tx_count": 14 + i * 3, "unique_senders": 8 + i * 2, "age_days": 20 + i * 9, "dormant_ratio": min(0.95, 0.45 + i * 0.04)})
+            for i in range(1, 9)
+        ]
+        victim_phones_extra = [
+            (f"phone_VX_{i:02d}", {"type": "phone", "label": "victim", "call_count": 1 + i % 4, "avg_duration": 40 + i * 4, "blocked_count": 0, "reported_count": i % 2, "international": 0, "voip": 0})
+            for i in range(1, 15)
+        ]
+        victim_accounts_extra = [
+            (f"acct_VX_{i:02d}", {"type": "account", "label": "legitimate", "inflow": 40000 + i * 6000, "outflow": 65000 + i * 14000, "tx_count": 3 + i % 5, "unique_senders": 1 + i % 4, "age_days": 900 + i * 120, "dormant_ratio": 0.05 + (i % 3) * 0.04})
+            for i in range(1, 9)
+        ]
+        legit_phones_extra = [
+            (f"phone_LX_{i:02d}", {"type": "phone", "label": "legitimate", "call_count": 3 + i, "avg_duration": 7 + i, "blocked_count": 0, "reported_count": 0, "international": 0, "voip": 0})
+            for i in range(1, 6)
+        ]
+        legit_accounts_extra = [
+            (f"acct_LX_{i:02d}", {"type": "account", "label": "legitimate", "inflow": 50000 + i * 10000, "outflow": 42000 + i * 9000, "tx_count": 8 + i, "unique_senders": 2 + i % 3, "age_days": 1600 + i * 300, "dormant_ratio": 0.08 + i * 0.01})
+            for i in range(1, 6)
+        ]
+
         # Add all nodes
         all_nodes = (scam_phones_1 + scam_phones_2 + mule_accounts_1 + mule_accounts_2 +
-                     victim_phones + victim_accounts + legit_phones + legit_accounts)
+                     victim_phones + victim_accounts + legit_phones + legit_accounts +
+                     scam_phones_3 + mule_accounts_3 + victim_phones_extra +
+                     victim_accounts_extra + legit_phones_extra + legit_accounts_extra)
         for node_id, attrs in all_nodes:
             G.add_node(node_id, **attrs)
 
@@ -323,6 +350,28 @@ class GraphAgent:
 
         # Cross-ring connection (shared victim — indicates coordination)
         G.add_edge("phone_S1_02", "phone_S2_01", type="associated", weight=0.5)
+
+        for idx in range(1, 11):
+            scammer = f"phone_S3_{idx:02d}"
+            mule = f"acct_M3_{((idx - 1) % 8) + 1:02d}"
+            G.add_edge(scammer, mule, type="owns", weight=1.0)
+            for victim_idx in range(idx, idx + 4):
+                victim = f"phone_VX_{((victim_idx - 1) % 14) + 1:02d}"
+                G.add_edge(scammer, victim, type="called", weight=1.0)
+
+        for idx in range(1, 9):
+            victim_account = f"acct_VX_{idx:02d}"
+            mule = f"acct_M3_{idx:02d}"
+            next_mule = f"acct_M3_{(idx % 8) + 1:02d}"
+            G.add_edge(victim_account, mule, type="transferred", weight=60000 + idx * 25000)
+            G.add_edge(mule, next_mule, type="transferred", weight=30000 + idx * 12000)
+
+        for idx in range(1, 6):
+            G.add_edge(f"phone_LX_{idx:02d}", f"acct_LX_{idx:02d}", type="owns", weight=1.0)
+
+        G.add_edge("phone_S3_02", "phone_S1_03", type="associated", weight=0.4)
+        G.add_edge("acct_M3_04", "acct_M2_01", type="transferred", weight=175000)
+        G.add_edge("phone_S3_07", "phone_S2_02", type="associated", weight=0.35)
 
         self._graph = G
         logger.info(f"✅ Fraud graph built: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")

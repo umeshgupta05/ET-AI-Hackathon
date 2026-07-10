@@ -27,6 +27,7 @@ from models.vision.detector import get_currency_detector
 from models.vision.classifier import get_forgery_classifier
 from models.vision.forensics import get_forensic_analyzer
 from models.vision.explainability import get_explainability_engine
+from models.vision.clip_scorer import get_clip_scorer
 from models.nlp.llm_client import get_llm_client
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class VisionAgent:
         self._classifier = get_forgery_classifier()
         self._forensics = get_forensic_analyzer()
         self._explainability = get_explainability_engine()
+        self._clip = get_clip_scorer()
         self._llm = get_llm_client()
         self._initialized = False
 
@@ -62,8 +64,9 @@ class VisionAgent:
         await self._classifier.initialize()
         await self._forensics.initialize()
         await self._explainability.initialize()
+        await self._clip.initialize()
         self._initialized = True
-        logger.info(" Vision Agent ready (8 AI techniques)")
+        logger.info(" Vision Agent ready (9 AI techniques incl. CLIP when available)")
 
     async def analyze(self, image_bytes: bytes) -> dict:
         """
@@ -98,6 +101,9 @@ class VisionAgent:
 
         # Step 3: Forensic analysis (ELA + FFT + NPR)
         forensics = self._forensics.analyze(note_crop)
+
+        # Step 3b: CLIP zero-shot authenticity signal
+        clip_result = self._clip.score(note_crop)
 
         # Step 4: Grad-CAM explainability
         gradcam_result = None
@@ -138,9 +144,13 @@ class VisionAgent:
         # Fuse all scores into final verdict
         classifier_score = classification.get("fused_counterfeit_score", 0.5)
         forensic_score = forensics.get("fused_forensic_score", 0.5)
+        clip_score = clip_result.get("risk_score", 0.5)
 
-        # Weighted fusion
-        fused_score = classifier_score * 0.6 + forensic_score * 0.4
+        # Conservative weighted fusion: CLIP is useful, but not allowed to dominate.
+        if clip_result.get("available"):
+            fused_score = classifier_score * 0.50 + forensic_score * 0.35 + clip_score * 0.15
+        else:
+            fused_score = classifier_score * 0.60 + forensic_score * 0.40
 
         if fused_score > 0.65:
             verdict = "likely_counterfeit"
@@ -166,6 +176,7 @@ class VisionAgent:
                 "npr_score": forensics["npr"]["synthetic_score"],
                 "fused_forensic_score": forensics["fused_forensic_score"],
             },
+            "clip": clip_result,
             "attention_map_base64": attention_map_b64,
             "annotated_overlay_base64": overlay_b64,
             "maverick_reasoning": maverick_reasoning,
@@ -179,6 +190,7 @@ class VisionAgent:
                 "Error Level Analysis (ELA)",
                 "FFT Frequency Analysis",
                 "Neighboring Pixel Relationship (NPR)",
+                "CLIP zero-shot vision-language scoring",
                 "Grad-CAM (explainability)",
                 "Llama 4 Maverick (multimodal reasoning)",
             ],
@@ -260,6 +272,7 @@ class VisionAgent:
                 "detector": self._detector.get_stats(),
                 "classifier": self._classifier.get_stats(),
                 "forensics": "ELA + FFT + NPR",
+                "clip": self._clip.get_stats(),
                 "explainability": self._explainability.get_stats(),
             },
         }

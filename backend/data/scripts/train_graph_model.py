@@ -221,5 +221,108 @@ def train():
                                         print("=" * 60)
 
 
+def train():
+    """Train GAT on the expanded fraud graph and save weights/metadata."""
+    from datetime import datetime, timezone
+
+    print("=" * 60)
+    print("Training Graph Attention Network (GAT)")
+    print("=" * 60)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    import asyncio
+
+    graph_agent = GraphAgent()
+    asyncio.run(graph_agent.initialize())
+    features, adj, labels = graph_agent._extract_node_features()
+    nodes = list(graph_agent._graph.nodes())
+
+    print(f"Nodes: {len(nodes)}")
+    print(f"Edges: {int(adj.sum() - len(nodes))}")
+    print(f"Fraud nodes: {int((labels > 0.5).sum())}")
+
+    x = torch.tensor(features, dtype=torch.float32, device=device)
+    a = torch.tensor(adj, dtype=torch.float32, device=device)
+    y = torch.tensor((labels > 0.5).astype(np.float32), dtype=torch.float32, device=device)
+
+    n = len(nodes)
+    indices = np.random.permutation(n)
+    train_idx = indices[: int(0.7 * n)]
+    val_idx = indices[int(0.7 * n) :]
+    train_mask = torch.zeros(n, dtype=torch.bool, device=device)
+    val_mask = torch.zeros(n, dtype=torch.bool, device=device)
+    train_mask[train_idx] = True
+    val_mask[val_idx] = True
+
+    model = FraudGAT(
+        in_features=features.shape[1],
+        hidden_dim=HIDDEN_DIM,
+        num_heads=NUM_HEADS,
+        dropout=DROPOUT,
+    ).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    pos_weight = torch.tensor([(y == 0).sum() / max((y == 1).sum(), 1)], device=device)
+
+    best_val_f1 = 0.0
+    best_metrics = {}
+    best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+
+    for epoch in range(EPOCHS):
+        model.train()
+        pred = model(x, a)
+        weight = torch.where(y == 1, pos_weight, torch.ones_like(y))
+        loss = F.binary_cross_entropy(pred[train_mask], y[train_mask], weight=weight[train_mask])
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        if (epoch + 1) % 10 == 0 or epoch == 0:
+            model.eval()
+            with torch.no_grad():
+                val_pred = model(x, a)
+                pred_binary = (val_pred[val_mask] > 0.5).cpu().numpy().astype(int)
+                val_true = y[val_mask].cpu().numpy().astype(int)
+                metrics = {
+                    "val_accuracy": float(accuracy_score(val_true, pred_binary)),
+                    "val_f1": float(f1_score(val_true, pred_binary, zero_division=0)),
+                    "val_precision": float(precision_score(val_true, pred_binary, zero_division=0)),
+                    "val_recall": float(recall_score(val_true, pred_binary, zero_division=0)),
+                    "epoch": epoch + 1,
+                }
+                print(
+                    f"Epoch {epoch + 1:3d}/{EPOCHS} | Loss: {loss.item():.4f} | "
+                    f"Val Acc: {metrics['val_accuracy']:.3f} | F1: {metrics['val_f1']:.3f}"
+                )
+                if metrics["val_f1"] >= best_val_f1:
+                    best_val_f1 = metrics["val_f1"]
+                    best_metrics = metrics
+                    best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    save_path = OUTPUT_DIR / "gat_model.pth"
+    torch.save(best_state, str(save_path))
+
+    metadata = {
+        "architecture": "Graph Attention Network (GAT)",
+        "layers": 2,
+        "attention_heads": NUM_HEADS,
+        "hidden_dim": HIDDEN_DIM,
+        "input_features": features.shape[1],
+        "epochs_trained": EPOCHS,
+        "best_val_f1": best_val_f1,
+        "best_metrics": best_metrics,
+        "graph_nodes": len(nodes),
+        "graph_edges": int(adj.sum() - len(nodes)),
+        "training_mode": "full",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with open(OUTPUT_DIR / "training_metadata.json", "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+    print(f"GAT model saved to: {save_path}")
+    print(f"Best Val F1: {best_val_f1:.4f}")
+
+
 if __name__ == "__main__":
     train()
