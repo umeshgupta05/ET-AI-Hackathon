@@ -28,12 +28,84 @@ import {
   analyzeTurnByTurn,
   healthCheck,
   getHistory,
+  getMe,
   loginUser,
+  logoutUser,
   registerUser,
   setAccessToken,
   transcribeVoice,
   updateMe,
+  traceWebSocketUrl,
 } from "./utils/api";
+
+function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfileUpdated }) {
+  const [name, setName] = useState(user?.name || "");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [preferredLanguage, setPreferredLanguage] = useState(user?.preferred_language || language);
+  const [history, setHistory] = useState([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (mode === "profile") getHistory().then((data) => setHistory(data.items || [])).catch(() => setHistory([]));
+  }, [mode]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      if (mode === "profile") {
+        const updated = await updateMe({ name, preferred_language: preferredLanguage });
+        onProfileUpdated(updated);
+      } else {
+        const payload = mode === "register"
+          ? await registerUser({ name, email, password, preferred_language: preferredLanguage })
+          : await loginUser({ email, password });
+        setAccessToken(payload.access_token);
+        onAuthenticated(payload.user);
+      }
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="account-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="dialog-header">
+          <div>
+            <div className="section-header">Secure account</div>
+            <h2>{mode === "login" ? "Log in" : mode === "register" ? "Create account" : "Profile & case history"}</h2>
+          </div>
+          <button className="input-btn" onClick={onClose} title="Close"><SvgIcon name="close" /></button>
+        </div>
+        <form className="account-form" onSubmit={submit}>
+          {mode !== "login" && <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} /></label>}
+          {mode !== "profile" && <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>}
+          {mode !== "profile" && <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></label>}
+          {mode !== "login" && <label>Preferred language<LanguageSelect value={preferredLanguage} onChange={setPreferredLanguage} /></label>}
+          {error && <div className="form-error">{error}</div>}
+          <button className="primary-command" type="submit" disabled={busy}>{busy ? "Please wait..." : mode === "profile" ? "Save profile" : mode === "login" ? "Log in" : "Create account"}</button>
+        </form>
+        {mode === "profile" && (
+          <div className="case-history">
+            <div className="section-header">Case history</div>
+            {history.length === 0 ? <p>No saved cases yet.</p> : history.slice(0, 8).map((item) => (
+              <div className="history-row" key={item.id}>
+                <span>{item.case_type}</span><strong>{item.risk_level}</strong><time>{new Date(item.created_at).toLocaleString()}</time>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
 
 function SvgIcon({ name, className = "svg-icon" }) {
   const icons = {
@@ -586,6 +658,7 @@ function WelcomeScreen({ onDemoScam, onDemoBenign, onDemoImage }) {
    MAIN APP
    ═══════════════════════════════════════════════════════════ */
 export default function App() {
+  const { i18n } = useTranslation();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
   const [imageFile, setImageFile] = useState(null);
@@ -594,6 +667,10 @@ export default function App() {
   const [systemStatus, setSystemStatus] = useState("connecting");
   const [activeResult, setActiveResult] = useState(null);
   const [trajectory, setTrajectory] = useState([]);
+  const [language, setLanguage] = useState(i18n.language || "en");
+  const [user, setUser] = useState(null);
+  const [dialogMode, setDialogMode] = useState(null);
+  const [liveStatus, setLiveStatus] = useState("reconnecting");
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const audioInputRef = useRef(null);
@@ -609,6 +686,25 @@ export default function App() {
       .then(() => setSystemStatus("connected"))
       .catch(() => setSystemStatus("offline"));
   }, []);
+
+  useEffect(() => {
+    getMe().then(setUser).catch(() => setAccessToken(null));
+  }, []);
+
+  useEffect(() => {
+    const sessionId = crypto.randomUUID?.() || String(Date.now());
+    const socket = new WebSocket(traceWebSocketUrl(sessionId));
+    socket.onopen = () => setLiveStatus("live");
+    socket.onerror = () => setLiveStatus("offline");
+    socket.onclose = () => setLiveStatus("offline");
+    return () => socket.close();
+  }, []);
+
+  const changeLanguage = (nextLanguage) => {
+    setLanguage(nextLanguage);
+    i18n.changeLanguage(nextLanguage);
+    localStorage.setItem("ui_language", nextLanguage);
+  };
 
   const addMessage = useCallback((role, content, data = null) => {
     setMessages((prev) => [
@@ -718,7 +814,27 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header systemStatus={systemStatus} />
+      <Header
+        systemStatus={systemStatus}
+        liveStatus={liveStatus}
+        user={user}
+        language={language}
+        onLanguageChange={changeLanguage}
+        onShowLogin={() => setDialogMode("login")}
+        onShowRegister={() => setDialogMode("register")}
+        onShowProfile={() => setDialogMode("profile")}
+        onLogout={() => { logoutUser().catch(() => setAccessToken(null)).finally(() => setUser(null)); }}
+      />
+      {dialogMode && (
+        <AccountDialog
+          mode={dialogMode}
+          user={user}
+          language={language}
+          onClose={() => setDialogMode(null)}
+          onAuthenticated={setUser}
+          onProfileUpdated={(updated) => { setUser(updated); changeLanguage(updated.preferred_language); }}
+        />
+      )}
       <div className="main">
         <div className="chat-area">
           {messages.length === 0 ? (

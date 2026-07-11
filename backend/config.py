@@ -164,7 +164,7 @@ class AppConfig:
 
     app_name: str = "Digital Public Safety Shield"
     app_version: str = "1.0.0"
-    debug: bool = True
+    debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "false").lower() == "true")
     host: str = "0.0.0.0"
     port: int = 8000
     cors_origins: list = field(

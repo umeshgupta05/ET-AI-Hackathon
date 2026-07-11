@@ -847,3 +847,18 @@ textarea:focus-visible,
   width: 16px;
   height: 16px;
 }
+/* Account and history workflow */
+.dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgba(42, 37, 31, .42); }
+.account-dialog { width: min(520px, 100%); max-height: 88vh; overflow: auto; background: var(--ink-800); border: 1px solid var(--hairline); box-shadow: 0 24px 70px rgba(47, 38, 27, .22); padding: 22px; }
+.dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.dialog-header h2 { margin: 4px 0 18px; font-size: 20px; }
+.account-form { display: grid; gap: 13px; }
+.account-form label { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.account-form input, .account-form select { width: 100%; min-height: 42px; border: 1px solid var(--hairline); background: var(--ink-750); color: var(--text-primary); padding: 9px 11px; font: inherit; }
+.primary-command { min-height: 42px; border: 0; background: var(--accent); color: white; padding: 10px 16px; font-weight: 700; cursor: pointer; }
+.primary-command:disabled { opacity: .55; cursor: wait; }
+.form-error { color: var(--signal-alert); font-size: 12px; }
+.case-history { margin-top: 22px; border-top: 1px solid var(--hairline); padding-top: 16px; }
+.history-row { display: grid; grid-template-columns: 1fr auto; gap: 3px 14px; padding: 10px 0; border-bottom: 1px solid var(--hairline); font-size: 12px; }
+.history-row strong { color: var(--signal-alert); text-transform: uppercase; }
+.history-row time { grid-column: 1 / -1; color: var(--text-muted); }

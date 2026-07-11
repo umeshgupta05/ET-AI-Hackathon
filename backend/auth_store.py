@@ -25,6 +25,12 @@ SUPPORTED_LANGUAGES = {
     "ta": "தமிழ்",
     "kn": "ಕನ್ನಡ",
     "bn": "বাংলা",
+    "mr": "मराठी",
+    "gu": "ગુજરાતી",
+    "ml": "മലയാളം",
+    "pa": "ਪੰਜਾਬੀ",
+    "or": "ଓଡ଼ିଆ",
+    "ur": "اردو",
 }
 
 
@@ -142,7 +148,10 @@ def update_user(user_id: str, name: Optional[str] = None, preferred_language: Op
 
 def create_access_token(user: dict[str, Any]) -> str:
     expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_MINUTES)
-    payload = {"sub": user["id"], "exp": expires}
+    with _connect() as conn:
+        row = conn.execute("SELECT token_version FROM users WHERE id = ?", (user["id"],)).fetchone()
+    token_version = int(row["token_version"]) if row else 0
+    payload = {"sub": user["id"], "ver": token_version, "exp": expires}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
@@ -150,15 +159,34 @@ def decode_token(token: str) -> Optional[dict[str, Any]]:
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("sub")
-        return get_user(user_id) if user_id else None
+        if not user_id:
+            return None
+        with _connect() as conn:
+            row = conn.execute("SELECT token_version FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row or int(payload.get("ver", -1)) != int(row["token_version"]):
+            return None
+        return get_user(user_id)
     except JWTError:
         return None
+
+
+def revoke_tokens(user_id: str) -> None:
+    """Invalidate every access token previously issued to a user."""
+    with _connect() as conn:
+        conn.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?", (user_id,))
 
 
 def save_case(user_id: str, case_type: str, result: dict[str, Any]) -> dict[str, Any]:
     case_id = result.get("case_id") or secrets.token_urlsafe(12)
     result["case_id"] = case_id
     now = datetime.now(timezone.utc).isoformat()
+    evidence_payload = json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    result["evidence_integrity"] = {
+        "algorithm": "SHA-256",
+        "hash": hashlib.sha256(evidence_payload.encode("utf-8")).hexdigest(),
+        "captured_at": now,
+        "schema_version": "1.0",
+    }
     with _connect() as conn:
         conn.execute(
             """
@@ -178,6 +206,23 @@ def save_case(user_id: str, case_type: str, result: dict[str, Any]) -> dict[str,
             ),
         )
     return result
+
+
+def get_case(user_id: str, case_id: str) -> Optional[dict[str, Any]]:
+    """Return a case only when it belongs to the authenticated user."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT payload_json, case_type, created_at FROM case_history WHERE id = ? AND user_id = ?",
+            (case_id, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": case_id,
+        "case_type": row["case_type"],
+        "created_at": row["created_at"],
+        "result": json.loads(row["payload_json"]),
+    }
 
 
 def get_history(user_id: str) -> list[dict[str, Any]]:

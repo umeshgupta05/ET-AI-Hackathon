@@ -54,6 +54,8 @@ python main.py
 
 Large generated model weights, local databases, `.env`, `node_modules`, and frontend build output are intentionally ignored by Git. Training scripts regenerate those artifacts locally. CPU-only full retraining may take longer, so smoke training remains available for quick validation.
 
+Problem-statement coverage and honest deployment limitations are tracked in [`docs/PROBLEM_STATEMENT_CHECKLIST.md`](docs/PROBLEM_STATEMENT_CHECKLIST.md). The system diagram and production boundaries are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
 ### 2. Frontend
 
 ```bash

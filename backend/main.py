@@ -18,6 +18,7 @@ import json
 import logging
 import sys
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -33,10 +34,12 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
     HTTPException,
+    Query,
+    Request,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Load environment variables
 load_dotenv()
@@ -52,11 +55,14 @@ from auth_store import (
     create_access_token,
     create_user,
     decode_token,
+    get_case,
     get_history,
     init_db,
     save_case,
+    revoke_tokens,
     update_user,
 )
+from intelligence import build_evidence_package, geospatial_overview, reporting_guidance
 
 # ─── Logging Setup ───────────────────────────────────────────────────────
 logging.basicConfig(
@@ -110,29 +116,44 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.cors_origins + ["*"],
+    allow_origins=config.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+@app.middleware("http")
+async def operational_headers(request: Request, call_next):
+    """Attach correlation and baseline security headers to every response."""
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    started = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(self), microphone=(self), geolocation=(self)"
+    response.headers["X-Process-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
+    return response
+
+
 # ─── Request / Response Models ───────────────────────────────────────────
 
 
 class TextAnalysisRequest(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=50_000)
     context: Optional[dict] = None
 
 
 class TurnByTurnRequest(BaseModel):
-    turns: list[str]
+    turns: list[str] = Field(min_length=1, max_length=100)
 
 
 class RegisterRequest(BaseModel):
-    name: str
-    email: str
-    password: str
+    name: str = Field(min_length=2, max_length=100)
+    email: str = Field(min_length=5, max_length=254)
+    password: str = Field(min_length=8, max_length=128)
     preferred_language: str
 
 
@@ -147,7 +168,7 @@ class ProfileUpdateRequest(BaseModel):
 
 
 class VoiceSynthesisRequest(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=5_000)
     language: str = "en"
 
 
@@ -158,6 +179,24 @@ class HealthResponse(BaseModel):
 
 
 login_attempts: dict[str, list[float]] = {}
+MAX_IMAGE_BYTES = 12 * 1024 * 1024
+MAX_AUDIO_BYTES = 30 * 1024 * 1024
+
+
+async def _read_upload(upload: UploadFile, *, kind: str) -> bytes:
+    allowed = {
+        "image": {"image/jpeg", "image/png", "image/webp"},
+        "audio": {"audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/webm", "video/webm"},
+    }
+    limit = MAX_IMAGE_BYTES if kind == "image" else MAX_AUDIO_BYTES
+    if upload.content_type and upload.content_type not in allowed[kind]:
+        raise HTTPException(status_code=415, detail=f"Unsupported {kind} content type")
+    data = await upload.read(limit + 1)
+    if not data:
+        raise HTTPException(status_code=400, detail=f"Empty {kind} upload")
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail=f"{kind.title()} exceeds {limit // (1024 * 1024)} MB limit")
+    return data
 
 
 def _rate_limit_login(email: str) -> None:
@@ -253,7 +292,8 @@ async def update_me(request: ProfileUpdateRequest, user: dict = Depends(get_curr
 
 
 @app.post("/api/auth/logout")
-async def logout():
+async def logout(user: dict = Depends(get_current_user)):
+    revoke_tokens(user["id"])
     return {"ok": True}
 
 
@@ -265,6 +305,29 @@ async def languages():
 @app.get("/api/history")
 async def history(user: dict = Depends(get_current_user)):
     return {"items": get_history(user["id"])}
+
+
+@app.get("/api/cases/{case_id}/evidence")
+async def evidence_package(case_id: str, user: dict = Depends(get_current_user)):
+    case = get_case(user["id"], case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return build_evidence_package(case, user)
+
+
+@app.get("/api/intelligence/hotspots")
+async def intelligence_hotspots(
+    latitude: Optional[float] = Query(None, ge=-90, le=90),
+    longitude: Optional[float] = Query(None, ge=-180, le=180),
+):
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(status_code=400, detail="Latitude and longitude must be supplied together")
+    return geospatial_overview(latitude, longitude)
+
+
+@app.get("/api/reporting/guidance")
+async def report_guidance(risk_level: str = Query("medium")):
+    return reporting_guidance(risk_level)
 
 
 @app.post("/api/voice/transcribe")
@@ -279,7 +342,7 @@ async def voice_transcribe(
         transcriber = get_transcriber()
         if not transcriber._initialized:
             await transcriber.initialize()
-        audio_bytes = await audio.read()
+        audio_bytes = await _read_upload(audio, kind="audio")
         result = await transcriber.transcribe(audio_bytes, language=language, use_groq=True)
         return {
             "transcript": result.get("text", ""),
@@ -331,6 +394,13 @@ async def health_check():
         "agents": orchestrator.get_stats()
         if orchestrator
         else {"status": "not_initialized"},
+        "capabilities": {
+            "languages": len(SUPPORTED_LANGUAGES),
+            "geospatial_intelligence": True,
+            "integrity_hashed_evidence": True,
+            "guided_official_reporting": True,
+            "realtime_websocket": True,
+        },
     }
 
 
@@ -353,11 +423,11 @@ async def analyze_multimodal(
     audio_bytes = None
 
     if image:
-        image_bytes = await image.read()
+        image_bytes = await _read_upload(image, kind="image")
         logger.info(f" Received image: {image.filename} ({len(image_bytes)} bytes)")
 
     if audio:
-        audio_bytes = await audio.read()
+        audio_bytes = await _read_upload(audio, kind="audio")
         logger.info(f" Received audio: {audio.filename} ({len(audio_bytes)} bytes)")
 
     if not text and not image_bytes and not audio_bytes:
@@ -405,7 +475,7 @@ async def analyze_image(image: UploadFile = File(...), user: Optional[dict] = De
     if not orchestrator:
         raise HTTPException(status_code=503, detail="System not initialized")
 
-    image_bytes = await image.read()
+    image_bytes = await _read_upload(image, kind="image")
 
     try:
         result = await orchestrator.process(image_bytes=image_bytes)
@@ -422,7 +492,7 @@ async def analyze_audio(audio: UploadFile = File(...), user: Optional[dict] = De
     if not orchestrator:
         raise HTTPException(status_code=503, detail="System not initialized")
 
-    audio_bytes = await audio.read()
+    audio_bytes = await _read_upload(audio, kind="audio")
 
     try:
         result = await orchestrator.process(audio_bytes=audio_bytes)

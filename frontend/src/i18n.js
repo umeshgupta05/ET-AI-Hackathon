@@ -8,6 +8,12 @@ export const languages = [
   { code: "ta", name: "தமிழ்" },
   { code: "kn", name: "ಕನ್ನಡ" },
   { code: "bn", name: "বাংলা" },
+  { code: "mr", name: "मराठी" },
+  { code: "gu", name: "ગુજરાતી" },
+  { code: "ml", name: "മലയാളം" },
+  { code: "pa", name: "ਪੰਜਾਬੀ" },
+  { code: "or", name: "ଓଡ଼ିଆ" },
+  { code: "ur", name: "اردو" },
 ];
 
 const base = {
