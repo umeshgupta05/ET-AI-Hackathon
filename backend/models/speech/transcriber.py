@@ -45,8 +45,14 @@ class Transcriber:
         if config.groq.api_key:
             self._groq_available = True
             logger.info(" Groq Whisper endpoint available (fast mode)")
+            self._initialized = True
+            return
 
-        # Also load local pipeline as fallback
+        self._initialize_local_pipeline()
+        self._initialized = True
+
+    def _initialize_local_pipeline(self) -> None:
+        """Load local Whisper only when the hosted endpoint is unavailable."""
         try:
             from transformers import pipeline as hf_pipeline
 
@@ -62,8 +68,6 @@ class Transcriber:
             logger.warning(f"Local Whisper not loaded: {e}")
             if not self._groq_available:
                 raise RuntimeError("No Whisper model available")
-
-        self._initialized = True
 
     async def transcribe(
         self,
@@ -103,6 +107,8 @@ class Transcriber:
                 logger.warning(f"Groq Whisper failed: {e}, falling back to local")
 
             # Fall back to local
+            if self._pipeline is None:
+                self._initialize_local_pipeline()
             if self._pipeline:
                 return await self._transcribe_local(audio_data, language)
 
@@ -115,8 +121,8 @@ class Transcriber:
         url = f"{config.groq.base_url}/audio/transcriptions"
         headers = {"Authorization": f"Bearer {config.groq.api_key}"}
 
-        # Send as multipart form data
-        files = {"file": ("audio.wav", audio_data, "audio/wav")}
+        filename, content_type = self._audio_file_info(audio_data)
+        files = {"file": (filename, audio_data, content_type)}
         data = {
             "model": config.groq.whisper_model,
             "language": language,
@@ -146,6 +152,19 @@ class Transcriber:
                 "duration": result.get("duration", 0.0),
                 "provider": "groq",
             }
+
+    @staticmethod
+    def _audio_file_info(audio_data: bytes) -> tuple[str, str]:
+        """Infer the container so the hosted Whisper API receives accurate metadata."""
+        if audio_data.startswith(b"fLaC"):
+            return "audio.flac", "audio/flac"
+        if audio_data.startswith(b"OggS"):
+            return "audio.ogg", "audio/ogg"
+        if audio_data.startswith(b"\x1a\x45\xdf\xa3"):
+            return "audio.webm", "audio/webm"
+        if audio_data.startswith(b"ID3") or audio_data[:2] in {b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"}:
+            return "audio.mp3", "audio/mpeg"
+        return "audio.wav", "audio/wav"
 
     async def _transcribe_local(self, audio_data: bytes, language: str) -> dict:
         """Transcribe using local HuggingFace Whisper pipeline."""

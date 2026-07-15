@@ -15,6 +15,7 @@ The trained model is saved to data/trained_models/forgery_classifier/
 import json
 import os
 import sys
+import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,8 +32,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image, ImageFilter
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
 
 # ─── Configuration ───────────────────────────────────────────────────────
 DATASET_DIR = Path(__file__).resolve().parent.parent / "training" / "currency"
@@ -44,7 +45,6 @@ EPOCHS_SUPERVISED = 10   # Supervised fine-tuning epochs
 LEARNING_RATE = 1e-4
 TEMPERATURE = 0.07       # SimCLR temperature
 SEED = 42
-SYNTHETIC_PER_CLASS = int(os.getenv("SYNTHETIC_PER_CLASS", "250"))
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)
@@ -153,65 +153,11 @@ class NTXentLoss(nn.Module):
 
 # ─── Synthetic Data Generation ────────────────────────────────────────────
 
-def generate_synthetic_data():
-    """
-    Generate synthetic training images if no real dataset is available.
-    Creates fake 'currency' images with distinct patterns for genuine vs. counterfeit.
-    """
-    print("📸 No real currency images found. Generating synthetic training data...")
-
-    genuine_dir = DATASET_DIR / "genuine"
-    counterfeit_dir = DATASET_DIR / "counterfeit"
-    genuine_dir.mkdir(parents=True, exist_ok=True)
-    counterfeit_dir.mkdir(parents=True, exist_ok=True)
-
-    for folder in (genuine_dir, counterfeit_dir):
-        for image_path in folder.glob("*.png"):
-            image_path.unlink()
-
-    for i in range(SYNTHETIC_PER_CLASS):
-        # Genuine: clean, structured patterns
-        img = np.random.randint(200, 240, (224, 224, 3), dtype=np.uint8)
-        # Add "watermark" pattern
-        img[50:70, 30:100, :] = [180, 200, 220]
-        # Add "serial number" region
-        img[180:195, 20:180, :] = [100, 100, 100]
-        # Add fine grid (security feature)
-        img[80:160:4, 30:190, :] = [190, 190, 190]
-        img[32:190, 112:116, :] = [110, 130, 145]
-        img[120:136, 140:190, :] = [145, 172, 120]
-        img = np.clip(
-            img.astype(np.int16) + np.random.randint(-5, 6, img.shape),
-            0,
-            255,
-        ).astype(np.uint8)
-
-        pil_img = Image.fromarray(img)
-        pil_img.save(genuine_dir / f"genuine_{i:03d}.png")
-
-    for i in range(SYNTHETIC_PER_CLASS):
-        # Counterfeit: noisy, inconsistent patterns
-        img = np.random.randint(180, 250, (224, 224, 3), dtype=np.uint8)
-        # Blurred "watermark"
-        img[48:74, 28:104, :] = np.random.randint(160, 230, (26, 76, 3), dtype=np.uint8)
-        # Misaligned serial
-        offset = np.random.randint(-5, 5)
-        img[180 + offset:195 + offset, 20:180, :] = np.random.randint(80, 120, (15, 160, 3), dtype=np.uint8)
-        # No security grid (or random noise)
-        img[80:160, 30:190, :] += np.random.randint(0, 30, (80, 160, 3), dtype=np.uint8).clip(0, 255)
-        if i % 3 == 0:
-            img = np.array(Image.fromarray(img).filter(ImageFilter.GaussianBlur(radius=1.2)))
-        if i % 4 == 0:
-            img[:, :, 1] = np.clip(img[:, :, 1].astype(np.int16) + 24, 0, 255)
-
-        pil_img = Image.fromarray(img.clip(0, 255).astype(np.uint8))
-        pil_img.save(counterfeit_dir / f"counterfeit_{i:03d}.png")
-
-    print(f"  Generated {SYNTHETIC_PER_CLASS} genuine + {SYNTHETIC_PER_CLASS} counterfeit synthetic images")
-    print("  Replace synthetic images with real notes for production accuracy")
-
-
 # ─── Training Functions ──────────────────────────────────────────────────
+
+def _hamming_distance(left: str, right: str) -> int:
+    return (int(left, 16) ^ int(right, 16)).bit_count()
+
 
 def load_dataset():
     """Load images from directory structure."""
@@ -219,24 +165,61 @@ def load_dataset():
     counterfeit_dir = DATASET_DIR / "counterfeit"
 
     if not genuine_dir.exists() or not counterfeit_dir.exists():
-        generate_synthetic_data()
+        raise FileNotFoundError(
+            "Real currency data is required. Create currency/genuine and "
+            "currency/counterfeit from verified, licensed sources."
+        )
 
     genuine_images = list(genuine_dir.glob("*.png")) + list(genuine_dir.glob("*.jpg")) + list(genuine_dir.glob("*.jpeg"))
     counterfeit_images = list(counterfeit_dir.glob("*.png")) + list(counterfeit_dir.glob("*.jpg")) + list(counterfeit_dir.glob("*.jpeg"))
 
-    if len(genuine_images) == 0 and len(counterfeit_images) == 0:
-        generate_synthetic_data()
-        genuine_images = list(genuine_dir.glob("*.png"))
-        counterfeit_images = list(counterfeit_dir.glob("*.png"))
+    if not genuine_images or not counterfeit_images:
+        raise ValueError(
+            "Both genuine and counterfeit classes need verified images; "
+            "synthetic fallback generation is disabled."
+        )
 
-    paths = [str(p) for p in genuine_images] + [str(p) for p in counterfeit_images]
-    labels = [0] * len(genuine_images) + [1] * len(counterfeit_images)
+    manifest_path = DATASET_DIR / "source_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
+    if manifest:
+        records = [record for record in manifest.get("records", []) if (DATASET_DIR / record["path"]).exists()]
+        paths = [str(DATASET_DIR / record["path"]) for record in records]
+        labels = [0 if record["label"] == "genuine" else 1 for record in records]
+        groups = [record.get("split_group") or record["sha256"] for record in records]
+
+        # Keep perceptually similar captures in the same fold.
+        for index, record in enumerate(records):
+            image_hash = record.get("difference_hash")
+            if not image_hash:
+                continue
+            for previous_index in range(index):
+                previous = records[previous_index]
+                if (
+                    previous.get("difference_hash")
+                    and previous["label"] == record["label"]
+                    and previous["denomination"] == record["denomination"]
+                    and _hamming_distance(image_hash, previous["difference_hash"]) <= 4
+                ):
+                    groups[index] = groups[previous_index]
+                    break
+        provenance = {
+            "manifest": str(manifest_path),
+            "source_dataset": manifest.get("source_dataset"),
+            "source_url": manifest.get("source_url"),
+            "license": manifest.get("license"),
+            "label_assurance": manifest.get("label_assurance"),
+        }
+    else:
+        paths = [str(p) for p in genuine_images] + [str(p) for p in counterfeit_images]
+        labels = [0] * len(genuine_images) + [1] * len(counterfeit_images)
+        groups = [Path(path).stem for path in paths]
+        provenance = {"manifest": None, "source_dataset": "unrecorded", "license": "unknown"}
 
     print(f"\nDataset: {len(genuine_images)} genuine + {len(counterfeit_images)} counterfeit")
-    return paths, labels
+    return paths, labels, groups, provenance
 
 
-def train_contrastive(model, backbone, train_paths, device):
+def train_contrastive(model, backbone, train_paths, device, epochs):
     """Phase 1: SimCLR contrastive pre-training."""
     print("\n" + "=" * 50)
     print("Phase 1: SimCLR Contrastive Pre-training")
@@ -263,15 +246,20 @@ def train_contrastive(model, backbone, train_paths, device):
     backbone.train()
     projection_head.train()
 
-    for epoch in range(EPOCHS_CONTRASTIVE):
+    for epoch in range(epochs):
         total_loss = 0
         for batch_idx, (view1, view2) in enumerate(loader):
             view1 = view1.to(device)
             view2 = view2.to(device)
 
             # Extract features
-            z1 = projection_head(backbone(view1))
-            z2 = projection_head(backbone(view2))
+            features1 = backbone(view1)
+            features2 = backbone(view2)
+            if features1.dim() == 4:
+                features1 = features1.mean(dim=(2, 3))
+                features2 = features2.mean(dim=(2, 3))
+            z1 = projection_head(features1)
+            z2 = projection_head(features2)
 
             loss = criterion(z1, z2)
 
@@ -282,13 +270,13 @@ def train_contrastive(model, backbone, train_paths, device):
             total_loss += loss.item()
 
         avg_loss = total_loss / len(loader)
-        print(f"  Epoch {epoch + 1}/{EPOCHS_CONTRASTIVE} — Contrastive Loss: {avg_loss:.4f}")
+        print(f"  Epoch {epoch + 1}/{epochs} — Contrastive Loss: {avg_loss:.4f}")
 
     print("✅ Contrastive pre-training complete")
     return backbone
 
 
-def train_supervised(backbone, attention_head, classifier_head, train_paths, train_labels, val_paths, val_labels, device):
+def train_supervised(backbone, attention_head, classifier_head, train_paths, train_labels, val_paths, val_labels, device, epochs):
     """Phase 2: Supervised fine-tuning."""
     print("\n" + "=" * 50)
     print("Phase 2: Supervised Fine-tuning")
@@ -306,12 +294,15 @@ def train_supervised(backbone, attention_head, classifier_head, train_paths, tra
         weight_decay=0.01,
     )
     criterion = nn.CrossEntropyLoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS_SUPERVISED)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     best_f1 = 0.0
     best_state = None
+    best_metrics = None
+    no_improve = 0
+    patience = 3
 
-    for epoch in range(EPOCHS_SUPERVISED):
+    for epoch in range(epochs):
         # Train
         backbone.train()
         attention_head.train()
@@ -348,6 +339,7 @@ def train_supervised(backbone, attention_head, classifier_head, train_paths, tra
         attention_head.eval()
         classifier_head.eval()
         val_preds = []
+        val_probs = []
         val_true = []
 
         with torch.no_grad():
@@ -356,33 +348,59 @@ def train_supervised(backbone, attention_head, classifier_head, train_paths, tra
                 features = backbone(images)
                 attended = attention_head(features)
                 logits = classifier_head(attended)
+                probabilities = torch.softmax(logits, dim=1)[:, 1]
                 _, predicted = logits.max(1)
                 val_preds.extend(predicted.cpu().numpy())
+                val_probs.extend(probabilities.cpu().numpy())
                 val_true.extend(labels.numpy())
 
         val_acc = accuracy_score(val_true, val_preds)
         val_f1 = f1_score(val_true, val_preds, average="binary", zero_division=0)
 
         print(
-            f"  Epoch {epoch + 1}/{EPOCHS_SUPERVISED} — "
+            f"  Epoch {epoch + 1}/{epochs} — "
             f"Loss: {train_loss:.4f} | Train Acc: {train_acc:.3f} | "
             f"Val Acc: {val_acc:.3f} | Val F1: {val_f1:.3f}"
         )
 
-        if val_f1 > best_f1:
+        if val_f1 > best_f1 + 1e-6:
             best_f1 = val_f1
             best_state = {
-                "backbone": backbone.state_dict(),
-                "attention_head": attention_head.state_dict(),
-                "classifier_head": classifier_head.state_dict(),
+                "backbone": {
+                    name: value.detach().cpu().clone()
+                    for name, value in backbone.state_dict().items()
+                },
+                "attention_head": {
+                    name: value.detach().cpu().clone()
+                    for name, value in attention_head.state_dict().items()
+                },
+                "classifier_head": {
+                    name: value.detach().cpu().clone()
+                    for name, value in classifier_head.state_dict().items()
+                },
             }
+            best_metrics = {
+                "best_epoch": epoch + 1,
+                "accuracy": float(val_acc),
+                "f1": float(val_f1),
+                "precision": float(precision_score(val_true, val_preds, zero_division=0)),
+                "recall": float(recall_score(val_true, val_preds, zero_division=0)),
+                "roc_auc": float(roc_auc_score(val_true, val_probs)),
+                "confusion_matrix": confusion_matrix(val_true, val_preds).tolist(),
+            }
+            no_improve = 0
+        else:
+            no_improve += 1
 
         scheduler.step()
+        if no_improve >= patience:
+            print(f"  Early stopping after epoch {epoch + 1}")
+            break
 
-    return best_state, best_f1
+    return best_state, best_metrics
 
 
-def train():
+def train(smoke: bool = False):
     """Full training pipeline."""
     print("=" * 60)
     print("🔍 Training Hybrid CNN-Transformer Forgery Classifier")
@@ -393,17 +411,29 @@ def train():
     print(f"Device: {device}")
 
     # ─── Load Data ────────────────────────────────────────────
-    paths, labels = load_dataset()
-
-    train_paths, val_paths, train_labels, val_labels = train_test_split(
-        paths, labels, test_size=0.2, random_state=SEED, stratify=labels
-    )
+    paths, labels, groups, provenance = load_dataset()
+    splitter = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=SEED)
+    train_indices, val_indices = next(splitter.split(paths, labels, groups=groups))
+    train_paths = [paths[index] for index in train_indices]
+    val_paths = [paths[index] for index in val_indices]
+    train_labels = [labels[index] for index in train_indices]
+    val_labels = [labels[index] for index in val_indices]
+    if set(np.asarray(groups)[train_indices]) & set(np.asarray(groups)[val_indices]):
+        raise RuntimeError("Grouped split leakage detected")
+    contrastive_epochs = 1 if smoke else EPOCHS_CONTRASTIVE
+    supervised_epochs = 2 if smoke else EPOCHS_SUPERVISED
+    print(f"Split: {len(train_paths)} train / {len(val_paths)} validation (group-disjoint)")
 
     # ─── Build Model ──────────────────────────────────────────
     import timm
     from models.vision.classifier import TransformerAttentionHead
 
-    backbone = timm.create_model("efficientnet_b0", pretrained=True, num_classes=0)
+    backbone = timm.create_model(
+        "efficientnet_b0",
+        pretrained=True,
+        num_classes=0,
+        global_pool="",
+    )
     backbone.to(device)
     feature_dim = backbone.num_features  # 1280
 
@@ -429,13 +459,15 @@ def train():
     print(f"Total parameters: {total_params:,}")
 
     # ─── Phase 1: Contrastive Pre-training ────────────────────
-    backbone = train_contrastive(None, backbone, train_paths, device)
+    backbone = train_contrastive(None, backbone, train_paths, device, contrastive_epochs)
 
     # ─── Phase 2: Supervised Fine-tuning ──────────────────────
-    best_state, best_f1 = train_supervised(
+    best_state, best_metrics = train_supervised(
         backbone, attention_head, classifier_head,
-        train_paths, train_labels, val_paths, val_labels, device,
+        train_paths, train_labels, val_paths, val_labels, device, supervised_epochs,
     )
+    if best_state is None or best_metrics is None:
+        raise RuntimeError("Training did not produce a valid checkpoint")
 
     # ─── Save Model ───────────────────────────────────────────
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -445,23 +477,32 @@ def train():
     metadata = {
         "architecture": "EfficientNet-B0 + Transformer Attention (Hybrid)",
         "training_phases": ["SimCLR contrastive", "Supervised fine-tuning"],
-        "contrastive_epochs": EPOCHS_CONTRASTIVE,
-        "supervised_epochs": EPOCHS_SUPERVISED,
-        "best_val_f1": best_f1,
+        "training_mode": "smoke" if smoke else "full",
+        "contrastive_epochs": contrastive_epochs,
+        "supervised_epochs": supervised_epochs,
+        "validation_metrics": best_metrics,
         "dataset_size": len(paths),
         "genuine_count": int(sum(1 for label in labels if label == 0)),
         "counterfeit_count": int(sum(1 for label in labels if label == 1)),
         "image_size": IMAGE_SIZE,
         "feature_dim": feature_dim,
+        "train_count": len(train_paths),
+        "validation_count": len(val_paths),
+        "split_method": "StratifiedGroupKFold(first fold, n_splits=5)",
+        "split_seed": SEED,
+        "provenance": provenance,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     with open(OUTPUT_DIR / "training_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
 
     print(f"\n✅ Model saved to: {save_path}")
-    print(f"   Best Val F1: {best_f1:.4f}")
+    print(f"   Best Val F1: {best_metrics['f1']:.4f}")
     print("=" * 60)
 
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--smoke", action="store_true")
+    arguments = parser.parse_args()
+    train(smoke=arguments.smoke)

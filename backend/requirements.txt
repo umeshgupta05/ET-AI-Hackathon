@@ -1,5 +1,6 @@
 # ─── Core Backend ───────────────────────────────────
 fastapi==0.115.12
+starlette==0.46.2  # Compatible shared ASGI layer for FastAPI and MCP
 uvicorn[standard]==0.34.3
 python-multipart==0.0.20
 websockets==15.0.1
@@ -45,3 +46,11 @@ networkx==3.5
 # ─── Utilities ──────────────────────────────────────
 aiofiles==24.1.0
 python-jose==3.4.0
+kaggle==1.7.4.5  # Dataset preparation/training only
+remotezip==0.12.3  # Selective extraction from large training archives
+
+# Optional production integrations
+aio-pika==10.0.1  # RabbitMQ durable job transport
+redis==8.0.1  # Optional pooled Redis coordination and distributed rate limiting
+mcp==1.28.1  # Model Context Protocol analyst adapter
+sse-starlette==2.3.6  # Keep MCP compatible with the pinned FastAPI stack

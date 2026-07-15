@@ -12,8 +12,6 @@ from typing import Optional
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 SCAM_PATTERNS_DIR = DATA_DIR / "scam_patterns"
-SAMPLE_AUDIO_DIR = DATA_DIR / "sample_audio"
-SAMPLE_IMAGES_DIR = DATA_DIR / "sample_images"
 MODELS_CACHE_DIR = BASE_DIR / "model_cache"
 CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 
@@ -21,8 +19,6 @@ CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 for d in [
     DATA_DIR,
     SCAM_PATTERNS_DIR,
-    SAMPLE_AUDIO_DIR,
-    SAMPLE_IMAGES_DIR,
     MODELS_CACHE_DIR,
     CHROMA_DB_DIR,
 ]:
@@ -36,11 +32,11 @@ class GroqConfig:
 
     api_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""))
     base_url: str = "https://api.groq.com/openai/v1"
-    # Primary: Kimi K2 — best-in-class agentic reasoning, 200-300 tool calls
+    # Text fallback used when the primary Kimi provider is unavailable
     primary_model: str = "openai/gpt-oss-20b"
-    # Multimodal: Llama 4 Maverick — natively sees images
-    multimodal_model: str = "meta-llama/llama-4-maverick-17b-128e-instruct"
-    # Reasoning fallback: DeepSeek R1 distill
+    # Groq-supported vision fallback when primary Kimi access is unavailable
+    multimodal_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    # Larger reasoning fallback
     reasoning_model: str = "openai/gpt-oss-120b"
     # Fast lightweight: Llama 4 Scout
     fast_model: str = "llama-3.1-8b-instant"
@@ -54,14 +50,16 @@ class GroqConfig:
 
 @dataclass
 class OpenRouterConfig:
-    """OpenRouter free tier — fallback LLM provider."""
+    """OpenRouter — primary Kimi K2 provider."""
 
     api_key: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""))
     base_url: str = "https://openrouter.ai/api/v1"
-    # Free auto-router
+    # Kimi K2.5 is the primary reasoning, routing, and multimodal model.
+    reasoning_model: str = "moonshotai/kimi-k2.5"
+    # Free Kimi fallback, tried before leaving OpenRouter for Groq.
+    kimi_free_fallback_model: str = "moonshotai/kimi-k2.6:free"
+    # Free auto-router remains available for lightweight fallback calls.
     free_router: str = "openrouter/free"
-    # DeepSeek V4 Flash (free)
-    reasoning_model: str = "openrouter/free"
     max_rpm: int = 20
     timeout: int = 90
 

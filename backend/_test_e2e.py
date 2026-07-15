@@ -1,90 +1,94 @@
-"""End-to-end test of LangGraph orchestrator via API."""
-
+"""Full E2E audit of all API endpoints."""
 import requests
+import json
+import time
 
 BASE = "http://localhost:8000"
 
-
-def main() -> None:
-    print("=" * 60)
-    print("TEST 1: Health Check")
-    response = requests.get(f"{BASE}/api/health", timeout=30)
-    response.raise_for_status()
-    data = response.json()
-    print(f"  Status: {data['status']}")
-    print(f"  Orchestrator: {data['agents']['orchestrator']}")
-    if "graph_topology" in data["agents"]:
-        topology = data["agents"]["graph_topology"]
-        print(
-            "  Graph: "
-            f"{topology['type']} ({topology['nodes']} nodes, "
-            f"{topology['edges']} edges, cyclic={topology['cyclic']})"
-        )
-    print()
-
-    print("=" * 60)
-    print("TEST 2: Scam Text Analysis (LangGraph)")
-    response = requests.post(
-        f"{BASE}/api/analyze/text",
-        json={
-            "text": (
-                "This is Inspector Sharma from CBI. Your Aadhaar has been linked "
-                "to money laundering case 4527. Transfer Rs 50,000 to this account "
-                "immediately or face digital arrest. Do not tell anyone."
-            )
-        },
-        timeout=180,
-    )
-    response.raise_for_status()
-    data = response.json()
-    print(f"  Verdict: {data['verdict']}")
-    print(f"  Confidence: {data['confidence']}")
-    print(f"  Risk Level: {data['risk_level']}")
-    print(f"  Agents: {data['agents_invoked']}")
-    if "langgraph" in data:
-        langgraph = data["langgraph"]
-        print(
-            "  LangGraph: "
-            f"{langgraph['graph_type']}, iterations={langgraph['iterations']}, "
-            f"self_correction={langgraph['self_correction']}"
-        )
-    print(f"  Trace steps: {len(data['trace'])}")
-    for step in data["trace"]:
-        name = step.get("step", "?")
-        if "techniques" in step:
-            print(f"    -> {name}: {step.get('techniques', [])}")
-        elif "confidence" in step:
-            print(f"    -> {name}: confidence={step['confidence']}")
-        elif "fused_score" in step:
-            print(f"    -> {name}: score={step['fused_score']}")
+def test(name, method, url, **kwargs):
+    try:
+        r = getattr(requests, method)(url, timeout=30, **kwargs)
+        status = r.status_code
+        try:
+            data = r.json()
+        except:
+            data = r.text[:200]
+        if status < 400:
+            print(f"  PASS [{status}] {name}")
+            return data
         else:
-            print(f"    -> {name}")
-    print(f"  Time: {data['processing_time_seconds']}s")
-    print()
+            print(f"  FAIL [{status}] {name}: {str(data)[:100]}")
+            return None
+    except Exception as e:
+        print(f"  FAIL [ERR] {name}: {e}")
+        return None
 
-    print("=" * 60)
-    print("TEST 3: Legitimate Text Analysis")
-    response = requests.post(
-        f"{BASE}/api/analyze/text",
-        json={
-            "text": (
-                "Thank you for calling State Bank customer service. Your account "
-                "balance is Rs 1,50,000. Your next EMI is due on July 15th. Visit "
-                "your branch for any queries."
-            )
-        },
-        timeout=180,
-    )
-    response.raise_for_status()
-    data = response.json()
-    print(f"  Verdict: {data['verdict']}")
-    print(f"  Confidence: {data['confidence']}")
-    print(f"  Risk Level: {data['risk_level']}")
-    print()
+print("=" * 60)
+print("FULL E2E AUDIT")
+print("=" * 60)
 
-    print("=" * 60)
-    print("ALL TESTS PASSED")
+# 1. Health
+print("\n--- Core Endpoints ---")
+data = test("Health Check", "get", f"{BASE}/api/health")
+if data:
+    print(f"    Orchestrator: {data.get('agents',{}).get('orchestrator','?')}")
+    topo = data.get('agents',{}).get('graph_topology',{})
+    if topo:
+        print(f"    Graph: {topo.get('type','?')}, nodes={topo.get('nodes','?')}")
 
+# 2. Demo endpoints
+print("\n--- Demo Endpoints ---")
+test("Scam Transcript", "get", f"{BASE}/api/demo/scam-transcript")
+test("Benign Transcript", "get", f"{BASE}/api/demo/benign-transcript")
 
-if __name__ == "__main__":
-    main()
+# 3. Text analysis (scam)
+print("\n--- Scam Text Analysis ---")
+data = test("Scam Text", "post", f"{BASE}/api/analyze/text", json={
+    "text": "This is Inspector Sharma from CBI. Your Aadhaar has been linked to money laundering. Transfer Rs 50,000 immediately or face digital arrest. Do not tell anyone."
+})
+if data:
+    print(f"    Verdict: {data.get('verdict')}")
+    print(f"    Confidence: {data.get('confidence')}")
+    print(f"    Risk: {data.get('risk_level')}")
+    print(f"    Agents: {data.get('agents_invoked')}")
+    lg = data.get('langgraph', {})
+    if lg:
+        print(f"    LangGraph: type={lg.get('graph_type')}, iter={lg.get('iterations')}")
+    print(f"    Time: {data.get('processing_time_seconds')}s")
+
+# 4. Legitimate text
+print("\n--- Legitimate Text Analysis ---")
+data = test("Safe Text", "post", f"{BASE}/api/analyze/text", json={
+    "text": "Thank you for calling SBI. Your account balance is Rs 1,50,000. Next EMI due July 15th. Visit your branch for queries."
+})
+if data:
+    print(f"    Verdict: {data.get('verdict')}")
+    print(f"    Confidence: {data.get('confidence')}")
+    print(f"    Risk: {data.get('risk_level')}")
+
+# 5. Turn-by-turn
+print("\n--- Turn-by-Turn Analysis ---")
+data = test("Turn Analysis", "post", f"{BASE}/api/analyze/turns", json={
+    "turns": [
+        "Hello, this is Inspector Sharma from CBI Cyber Cell.",
+        "Your Aadhaar has been used for money laundering. An arrest warrant has been issued.",
+        "Transfer Rs 2 lakhs to the RBI safe custody account immediately."
+    ]
+})
+if data:
+    traj = data.get('trajectory', [])
+    print(f"    Turns analyzed: {len(traj)}")
+    for t in traj:
+        print(f"    Turn {t.get('turn',0)}: confidence={t.get('fused_confidence','?')}")
+
+# 6. Graph
+print("\n--- Graph Endpoints ---")
+data = test("Graph Analysis", "get", f"{BASE}/api/graph/analyze")
+if data:
+    print(f"    Risk Score: {data.get('network_risk_score')}")
+    print(f"    High-risk nodes: {len(data.get('high_risk_nodes',[]))}")
+
+test("Graph Visualization", "get", f"{BASE}/api/graph/visualization")
+
+print("\n" + "=" * 60)
+print("AUDIT COMPLETE")

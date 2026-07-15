@@ -19,13 +19,24 @@ data/chroma_db/
 data/app.db
 data/*.db
 data/*.sqlite*
+runtime/
 data/data/
+data/training/currency/genuine/*
+data/training/currency/counterfeit/*
+data/training/currency/.download_staging/
+data/training/currency/.source_index.json
 
 # Large trained weights; keep scripts, metadata, and small configs tracked
 data/trained_models/**/*.pth
 data/trained_models/**/*.pt
 data/trained_models/**/*.bin
 data/trained_models/**/*.safetensors
+data/trained_models/**/*.h5
+data/trained_models/**/*.keras
+data/trained_models/**/*.onnx
+data/trained_models/**/*.joblib
+data/trained_models/**/*.pkl
+data/trained_models/xgboost_fusion/model.json
 
 # Logs
 logs/

@@ -3,7 +3,7 @@ Vision Agent — Counterfeit & Deepfake Currency Detection.
 
 Orchestrates the full vision pipeline:
 YOLOv8 detect → crop regions → EfficientNet classify →
-ELA+FFT+NPR forensics → Grad-CAM explain → Maverick vision-language reasoning
+ELA+FFT+NPR forensics → Grad-CAM explain → Kimi multimodal reasoning
 
 8 AI techniques in one agent:
 1. YOLOv8 (object detection/segmentation)
@@ -12,13 +12,15 @@ ELA+FFT+NPR forensics → Grad-CAM explain → Maverick vision-language reasonin
 4. ELA (Error Level Analysis)
 5. FFT (frequency-domain print artifact detection)
 6. Grad-CAM (attention visualization)
-7. Llama 4 Maverick (multimodal vision-language reasoning)
+7. Kimi K2.5 (multimodal vision-language reasoning)
 8. CLIP-based deepfake document detection (when applicable)
 """
 
 import base64
 import logging
 from typing import Optional
+
+from localization import model_language_instruction, normalize_language
 
 import cv2
 import numpy as np
@@ -42,7 +44,7 @@ class VisionAgent:
     2. EfficientNet-B0 classifies each region (genuine vs. counterfeit)
     3. Forensic analysis (ELA + FFT + NPR) provides supporting signals
     4. Grad-CAM generates attention heatmap showing model focus areas
-    5. Llama 4 Maverick reasons about the image in natural language
+    5. Kimi K2.5 reasons about the image in natural language
     6. All signals fused into a single verdict with per-region attribution
     """
 
@@ -68,7 +70,7 @@ class VisionAgent:
         self._initialized = True
         logger.info(" Vision Agent ready (9 AI techniques incl. CLIP when available)")
 
-    async def analyze(self, image_bytes: bytes) -> dict:
+    async def analyze(self, image_bytes: bytes, language: str = "en") -> dict:
         """
         Full analysis pipeline for a currency note image.
 
@@ -124,9 +126,9 @@ class VisionAgent:
         except Exception as e:
             logger.warning(f"Grad-CAM generation failed: {e}")
 
-        # Step 5: Llama 4 Maverick multimodal reasoning (if API available)
-        maverick_reasoning = await self._get_maverick_reasoning(
-            image_bytes, classification, forensics
+        # Step 5: Kimi K2.5 multimodal reasoning (if API available)
+        multimodal_reasoning = await self._get_multimodal_reasoning(
+            image_bytes, classification, forensics, language=language
         )
 
         # Encode visualizations as base64 for frontend
@@ -168,6 +170,13 @@ class VisionAgent:
                 "detection_confidence": detection["confidence"],
                 "note_dimensions": detection.get("note_dimensions"),
             },
+            "classification": {
+                "model_available": classification.get("model_available", False),
+                "genuine_score": classification.get("fused_genuine_score", 0.5),
+                "counterfeit_score": classification.get("fused_counterfeit_score", 0.5),
+                "verdict": classification.get("verdict", "unavailable"),
+                "cross_region_attention": classification.get("cross_region_attention", False),
+            },
             "region_scores": classification.get("region_scores", {}),
             "suspicious_regions": classification.get("suspicious_regions", []),
             "forensics": {
@@ -179,29 +188,34 @@ class VisionAgent:
             "clip": clip_result,
             "attention_map_base64": attention_map_b64,
             "annotated_overlay_base64": overlay_b64,
-            "maverick_reasoning": maverick_reasoning,
+            "multimodal_reasoning": multimodal_reasoning,
+            "maverick_reasoning": multimodal_reasoning,
+            "response_language": normalize_language(language),
             "explanation": self._generate_explanation(
-                classification, forensics, maverick_reasoning
+                classification, forensics, multimodal_reasoning
             ),
             "techniques_used": [
                 "YOLOv8 (object detection)",
-                "EfficientNet-B0 (forgery classification)",
-                "Contrastive Learning (SimCLR-style)",
+                *(["EfficientNet-B0 (forgery classification)", "Contrastive Learning (SimCLR-style)"] if classification.get("model_available") else []),
                 "Error Level Analysis (ELA)",
                 "FFT Frequency Analysis",
                 "Neighboring Pixel Relationship (NPR)",
                 "CLIP zero-shot vision-language scoring",
                 "Grad-CAM (explainability)",
-                "Llama 4 Maverick (multimodal reasoning)",
+                "Kimi K2.5 (multimodal reasoning)",
             ],
         }
 
-    async def _get_maverick_reasoning(
-        self, image_bytes: bytes, classification: dict, forensics: dict
+    async def _get_multimodal_reasoning(
+        self,
+        image_bytes: bytes,
+        classification: dict,
+        forensics: dict,
+        language: str = "en",
     ) -> Optional[str]:
         """
-        Use Llama 4 Maverick to reason about the currency image.
-        Maverick natively processes images — this is multimodal AI reasoning.
+        Use Kimi K2.5 to reason about the currency image.
+        Kimi natively processes images, providing multimodal AI reasoning.
         """
         try:
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -214,7 +228,8 @@ class VisionAgent:
                 f"- Forensic NPR score: {forensics.get('npr', {}).get('synthetic_score', 'N/A')}\n\n"
                 f"Based on what you can see in the image and these model outputs, "
                 f"provide a brief expert analysis of the note's authenticity. "
-                f"Focus on visible security features, print quality, and any anomalies."
+                f"Focus on visible security features, print quality, and any anomalies.\n\n"
+                f"{model_language_instruction(language)}"
             )
 
             result = await self._llm.analyze_image(
@@ -226,11 +241,11 @@ class VisionAgent:
             return result.get("content", "")
 
         except Exception as e:
-            logger.warning(f"Maverick vision reasoning failed: {e}")
+            logger.warning(f"Kimi multimodal reasoning failed: {e}")
             return None
 
     def _generate_explanation(
-        self, classification: dict, forensics: dict, maverick_reasoning: Optional[str]
+        self, classification: dict, forensics: dict, multimodal_reasoning: Optional[str]
     ) -> str:
         """Generate human-readable explanation of the verdict."""
         parts = []
@@ -254,9 +269,9 @@ class VisionAgent:
         if npr_score > 0.6:
             parts.append("NPR analysis suggests possible synthetic/printed origin.")
 
-        # Maverick reasoning
-        if maverick_reasoning:
-            parts.append(f"AI vision analysis: {maverick_reasoning[:200]}")
+        # Multimodal reasoning
+        if multimodal_reasoning:
+            parts.append(f"AI vision analysis: {multimodal_reasoning[:200]}")
 
         if not parts:
             parts.append("Analysis complete. No strong indicators found.")

@@ -15,6 +15,7 @@ The trained model is saved to data/trained_models/fraud_gat/
 
 import json
 import sys
+import argparse
 from pathlib import Path
 
 # Fix Windows encoding
@@ -28,6 +29,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.model_selection import train_test_split
 
 from agents.graph_agent import FraudGAT, GraphAgent
 
@@ -45,8 +47,8 @@ torch.manual_seed(SEED)
 np.random.seed(SEED)
 
 
-def train():
-    """Train GAT on fraud network graph."""
+def _legacy_train_reference():
+    """Retained historical trainer reference; the audited trainer is defined below."""
     print("=" * 60)
     print(" Training Graph Attention Network (GAT)")
     print(" Fraud Node Classification")
@@ -221,7 +223,7 @@ def train():
                                         print("=" * 60)
 
 
-def train():
+def train(smoke: bool = False):
     """Train GAT on the expanded fraud graph and save weights/metadata."""
     from datetime import datetime, timezone
 
@@ -246,9 +248,13 @@ def train():
     y = torch.tensor((labels > 0.5).astype(np.float32), dtype=torch.float32, device=device)
 
     n = len(nodes)
-    indices = np.random.permutation(n)
-    train_idx = indices[: int(0.7 * n)]
-    val_idx = indices[int(0.7 * n) :]
+    indices = np.arange(n)
+    train_idx, val_idx = train_test_split(
+        indices,
+        test_size=0.3,
+        random_state=SEED,
+        stratify=(labels > 0.5).astype(int),
+    )
     train_mask = torch.zeros(n, dtype=torch.bool, device=device)
     val_mask = torch.zeros(n, dtype=torch.bool, device=device)
     train_mask[train_idx] = True
@@ -267,7 +273,8 @@ def train():
     best_metrics = {}
     best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
-    for epoch in range(EPOCHS):
+    training_epochs = 30 if smoke else EPOCHS
+    for epoch in range(training_epochs):
         model.train()
         pred = model(x, a)
         weight = torch.where(y == 1, pos_weight, torch.ones_like(y))
@@ -291,10 +298,10 @@ def train():
                     "epoch": epoch + 1,
                 }
                 print(
-                    f"Epoch {epoch + 1:3d}/{EPOCHS} | Loss: {loss.item():.4f} | "
+                    f"Epoch {epoch + 1:3d}/{training_epochs} | Loss: {loss.item():.4f} | "
                     f"Val Acc: {metrics['val_accuracy']:.3f} | F1: {metrics['val_f1']:.3f}"
                 )
-                if metrics["val_f1"] >= best_val_f1:
+                if metrics["val_f1"] > best_val_f1 + 1e-6:
                     best_val_f1 = metrics["val_f1"]
                     best_metrics = metrics
                     best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -309,12 +316,12 @@ def train():
         "attention_heads": NUM_HEADS,
         "hidden_dim": HIDDEN_DIM,
         "input_features": features.shape[1],
-        "epochs_trained": EPOCHS,
+        "epochs_trained": training_epochs,
         "best_val_f1": best_val_f1,
         "best_metrics": best_metrics,
         "graph_nodes": len(nodes),
         "graph_edges": int(adj.sum() - len(nodes)),
-        "training_mode": "full",
+        "training_mode": "smoke" if smoke else "full",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     with open(OUTPUT_DIR / "training_metadata.json", "w", encoding="utf-8") as f:
@@ -325,4 +332,7 @@ def train():
 
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--smoke", action="store_true")
+    arguments = parser.parse_args()
+    train(smoke=arguments.smoke)

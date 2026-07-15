@@ -42,6 +42,7 @@ class XGBoostFusion:
             / "model.json"
         )
         self._metadata_path = self._model_path.parent / "training_metadata.json"
+        self._metadata: dict = {}
 
     def initialize(self) -> None:
         if self._available:
@@ -54,6 +55,8 @@ class XGBoostFusion:
 
             model = XGBClassifier()
             model.load_model(str(self._model_path))
+            if self._metadata_path.exists():
+                self._metadata = json.loads(self._metadata_path.read_text(encoding="utf-8"))
             self._model = model
             self._available = True
             logger.info(f"XGBoost fusion model loaded from {self._model_path}")
@@ -77,7 +80,13 @@ class XGBoostFusion:
             "vision_forensic_score": float(forensics.get("fused_forensic_score", 0.5) or 0.5),
             "vision_clip_score": float(clip.get("risk_score", 0.5) or 0.5),
             "speech_spoof_score": float(spoof.get("spoof_score", 0.5) or 0.5),
-            "nlp_score": float(nlp.get("fused_confidence", 0.5) or 0.5),
+            "nlp_score": float(
+                nlp.get(
+                    "text_binary_score",
+                    nlp.get("text_classifier_score", nlp.get("fused_confidence", 0.5)),
+                )
+                or 0.5
+            ),
             "graph_score": float(graph.get("network_risk_score", 0.0) or 0.0),
             "has_vision": 1.0 if vision else 0.0,
             "has_speech": 1.0 if speech else 0.0,
@@ -92,30 +101,51 @@ class XGBoostFusion:
     def predict(self, state: dict, fallback_score: float) -> dict:
         self.initialize()
         features = self.extract_features(state)
-        if not self._available or self._model is None:
+        modality_group = self._modality_group(features)
+        supported_groups = set(self._metadata.get("supported_modality_groups", []))
+        unsupported_modality = bool(supported_groups and modality_group not in supported_groups)
+        if not self._available or self._model is None or unsupported_modality:
             return {
                 "score": round(float(fallback_score), 4),
                 "method": "weighted_fallback",
                 "features": features,
                 "model_available": False,
-                "error": self._error,
+                "error": "unsupported_modality_signature" if unsupported_modality else self._error,
+                "modality_group": modality_group,
             }
 
         vector = np.array([[features[name] for name in FEATURE_NAMES]], dtype=np.float32)
         probability = float(self._model.predict_proba(vector)[0][1])
-        # Guard against an overconfident tiny meta-model by blending with the base score.
-        blended = probability * 0.70 + float(fallback_score) * 0.30
+        blend_metadata = self._metadata.get("deployment_blend_metrics", {})
+        xgboost_weight = float(blend_metadata.get("xgboost_weight", 0.70))
+        xgboost_weight = max(0.0, min(1.0, xgboost_weight))
+        blended = probability * xgboost_weight + float(fallback_score) * (1.0 - xgboost_weight)
         return {
             "score": round(blended, 4),
             "raw_xgboost_score": round(probability, 4),
             "method": "xgboost_meta_learner",
             "features": features,
             "model_available": True,
+            "modality_group": modality_group,
+            "xgboost_weight": round(xgboost_weight, 4),
         }
 
+    @staticmethod
+    def _modality_group(features: dict[str, float]) -> str:
+        active = [
+            name
+            for name, flag in (
+                ("image", features["modality_image"]),
+                ("audio", features["modality_audio"]),
+                ("text", features["modality_text"]),
+            )
+            if flag >= 0.5
+        ]
+        return "_".join(active) if active else "unknown"
+
     def get_stats(self) -> dict:
-        metadata = None
-        if self._metadata_path.exists():
+        metadata = self._metadata or None
+        if metadata is None and self._metadata_path.exists():
             try:
                 metadata = json.loads(self._metadata_path.read_text(encoding="utf-8"))
             except Exception:

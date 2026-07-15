@@ -5,7 +5,7 @@ Main API server exposing multi-agent AI system via REST + WebSocket.
 Accepts image/audio/text input, routes through the Agentic Fusion Orchestrator,
 returns structured verdicts with full agent trace.
 
-All AI inference: $0.00 (free-tier APIs + open-weight models).
+AI inference uses configured hosted APIs and local open-weight models.
 """
 
 import os
@@ -63,6 +63,16 @@ from auth_store import (
     update_user,
 )
 from intelligence import build_evidence_package, geospatial_overview, reporting_guidance
+from localization import normalize_language
+from broker import broker_status, close_broker, jobs_enabled, publish_job
+from job_store import create_job, fail_job, get_job, init_job_db
+from redis_service import (
+    close_redis,
+    consume_rate_limit,
+    initialize_redis,
+    redis_status,
+    reset_rate_limit,
+)
 
 # ─── Logging Setup ───────────────────────────────────────────────────────
 logging.basicConfig(
@@ -81,10 +91,15 @@ async def lifespan(app: FastAPI):
     """Initialize AI models on startup."""
     global orchestrator
     init_db()
+    init_job_db()
+    await initialize_redis()
+    jwt_secret = os.getenv("JWT_SECRET", "")
+    if len(jwt_secret) < 32:
+        logger.warning(" JWT_SECRET is not production-ready; set a random value of at least 32 characters")
     logger.info("=" * 60)
     logger.info(" DIGITAL PUBLIC SAFETY SHIELD")
     logger.info(" Multi-Agent AI System — 17 AI Techniques")
-    logger.info(" All Free: Groq + OpenRouter + HuggingFace")
+    logger.info(" Providers: Groq + OpenRouter + HuggingFace/local models")
     logger.info("=" * 60)
 
     orchestrator = FusionOrchestrator()
@@ -97,6 +112,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    await close_broker()
+    await close_redis()
     logger.info(" Shutting down...")
 
 
@@ -106,7 +123,7 @@ app = FastAPI(
     description=(
         "AI-powered fraud detection platform using 17 AI techniques: "
         "YOLOv8, EfficientNet, Contrastive Learning, ELA, FFT, NPR, CLIP, Grad-CAM, "
-        "Whisper, WavLM/AASIST, Groq GPT-OSS, Llama 4 Scout, DistilBERT, "
+        "Whisper, WavLM/AASIST, Kimi K2.5, Llama 4 Scout, DistilBERT, "
         "Hybrid RAG, Multi-Role CoT, Ensemble Fusion, Calibration."
     ),
     version=config.app_version,
@@ -128,6 +145,26 @@ async def operational_headers(request: Request, call_next):
     """Attach correlation and baseline security headers to every response."""
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     started = time.perf_counter()
+    analysis_limit = None
+    if request.url.path.startswith("/api/analyze"):
+        client_id = request.client.host if request.client else "unknown"
+        analysis_limit = await consume_rate_limit(
+            "analysis",
+            client_id,
+            limit=int(os.getenv("ANALYSIS_RATE_LIMIT", "30")),
+            window_seconds=int(os.getenv("ANALYSIS_RATE_WINDOW_SECONDS", "60")),
+        )
+        if analysis_limit and not analysis_limit["allowed"]:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Analysis rate limit exceeded. Try again shortly."},
+                headers={
+                    "Retry-After": str(analysis_limit["retry_after"]),
+                    "X-Request-ID": request_id,
+                    "X-RateLimit-Limit": str(analysis_limit["limit"]),
+                    "X-RateLimit-Remaining": str(analysis_limit["remaining"]),
+                },
+            )
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -135,6 +172,9 @@ async def operational_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(self), microphone=(self), geolocation=(self)"
     response.headers["X-Process-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
+    if analysis_limit:
+        response.headers["X-RateLimit-Limit"] = str(analysis_limit["limit"])
+        response.headers["X-RateLimit-Remaining"] = str(analysis_limit["remaining"])
     return response
 
 
@@ -144,10 +184,16 @@ async def operational_headers(request: Request, call_next):
 class TextAnalysisRequest(BaseModel):
     text: str = Field(min_length=1, max_length=50_000)
     context: Optional[dict] = None
+    language: str = "en"
 
 
 class TurnByTurnRequest(BaseModel):
     turns: list[str] = Field(min_length=1, max_length=100)
+    language: str = "en"
+
+
+class AsyncTextAnalysisRequest(TextAnalysisRequest):
+    pass
 
 
 class RegisterRequest(BaseModel):
@@ -186,7 +232,18 @@ MAX_AUDIO_BYTES = 30 * 1024 * 1024
 async def _read_upload(upload: UploadFile, *, kind: str) -> bytes:
     allowed = {
         "image": {"image/jpeg", "image/png", "image/webp"},
-        "audio": {"audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/webm", "video/webm"},
+        "audio": {
+            "audio/wav",
+            "audio/x-wav",
+            "audio/mpeg",
+            "audio/mp4",
+            "audio/x-m4a",
+            "audio/aac",
+            "audio/flac",
+            "audio/ogg",
+            "audio/webm",
+            "video/webm",
+        },
     }
     limit = MAX_IMAGE_BYTES if kind == "image" else MAX_AUDIO_BYTES
     if upload.content_type and upload.content_type not in allowed[kind]:
@@ -199,7 +256,22 @@ async def _read_upload(upload: UploadFile, *, kind: str) -> bytes:
     return data
 
 
-def _rate_limit_login(email: str) -> None:
+async def _rate_limit_login(email: str) -> None:
+    distributed = await consume_rate_limit(
+        "login",
+        email,
+        limit=int(os.getenv("LOGIN_RATE_LIMIT", "8")),
+        window_seconds=int(os.getenv("LOGIN_RATE_WINDOW_SECONDS", "300")),
+    )
+    if distributed:
+        if not distributed["allowed"]:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many login attempts. Try again shortly.",
+                headers={"Retry-After": str(distributed["retry_after"])},
+            )
+        return
+
     now = time.time()
     key = email.lower().strip()
     recent = [ts for ts in login_attempts.get(key, []) if now - ts < 300]
@@ -273,10 +345,11 @@ async def register(request: RegisterRequest):
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest):
-    _rate_limit_login(request.email)
+    await _rate_limit_login(request.email)
     user = authenticate_user(request.email, request.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    await reset_rate_limit("login", request.email)
     return _auth_payload(user)
 
 
@@ -350,6 +423,8 @@ async def voice_transcribe(
             "provider": result.get("provider", "unknown"),
             "segments": result.get("segments", []),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Voice transcription failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -357,27 +432,46 @@ async def voice_transcribe(
 
 @app.post("/api/voice/synthesize")
 async def voice_synthesize(request: VoiceSynthesisRequest):
-    """
-    Lightweight speech endpoint for hackathon demos.
-    Browser speech synthesis is the primary multilingual TTS path; this endpoint
-    confirms server readiness and returns a tiny WAV placeholder when requested.
-    """
-    import wave
+    """Synthesize short English safety guidance with Groq Orpheus."""
+    if request.language.lower().split("-")[0] != "en":
+        raise HTTPException(
+            status_code=422,
+            detail="Server TTS currently supports English; use browser speech synthesis for other languages",
+        )
+    if len(request.text) > 200:
+        raise HTTPException(status_code=422, detail="Server TTS supports up to 200 characters per request")
+    if not config.groq.api_key:
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY is not configured")
 
-    sample_rate = 16000
-    duration = 0.12
-    frames = int(sample_rate * duration)
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(sample_rate)
-        wav.writeframes(b"\x00\x00" * frames)
-    buffer.seek(0)
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.groq.com/openai/v1/audio/speech",
+                headers={"Authorization": f"Bearer {config.groq.api_key}"},
+                json={
+                    "model": "canopylabs/orpheus-v1-english",
+                    "input": request.text,
+                    "voice": "hannah",
+                    "response_format": "wav",
+                },
+            )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.error("Groq TTS rejected the request: %s", exc.response.text[:300])
+        raise HTTPException(status_code=502, detail="Speech provider rejected the synthesis request") from exc
+    except httpx.HTTPError as exc:
+        logger.error("Groq TTS request failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Speech provider is unavailable") from exc
+
     return StreamingResponse(
-        buffer,
+        io.BytesIO(response.content),
         media_type="audio/wav",
-        headers={"X-TTS-Mode": "browser-speech-synthesis-fallback"},
+        headers={
+            "X-TTS-Mode": "groq-orpheus",
+            "Cache-Control": "private, max-age=3600",
+        },
     )
 
 
@@ -387,6 +481,48 @@ async def voice_synthesize(request: VoiceSynthesisRequest):
 @app.get("/api/health")
 async def health_check():
     """System health check with agent status."""
+    training_dir = Path(__file__).parent / "data" / "training"
+    text_dataset = training_dir / "scam_detection_dataset.json"
+    try:
+        text_records = len(json.loads(text_dataset.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        text_records = 0
+    currency_dir = training_dir / "currency"
+    currency_manifest_path = currency_dir / "source_manifest.json"
+    currency_images = (
+        sum(
+            1
+            for suffix in ("*.jpg", "*.jpeg", "*.png", "*.webp")
+            for _ in currency_dir.rglob(suffix)
+        )
+        if currency_dir.exists()
+        else 0
+    )
+    try:
+        currency_manifest = json.loads(currency_manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        currency_manifest = {}
+    trained_models_dir = Path(__file__).parent / "data" / "trained_models"
+    vision_model_path = trained_models_dir / "forgery_classifier" / "model.pth"
+    vision_metadata_path = vision_model_path.parent / "training_metadata.json"
+    xgboost_model_path = trained_models_dir / "xgboost_fusion" / "model.json"
+    xgboost_metadata_path = xgboost_model_path.parent / "training_metadata.json"
+    text_metadata_path = trained_models_dir / "scam_classifier" / "final" / "training_metadata.json"
+    text_benchmark_path = trained_models_dir / "scam_classifier" / "benchmark_metadata.json"
+
+    def load_metadata(path: Path) -> dict:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return {}
+
+    vision_metadata = load_metadata(vision_metadata_path)
+    xgboost_metadata = load_metadata(xgboost_metadata_path)
+    text_metadata = load_metadata(text_metadata_path)
+    text_benchmark = load_metadata(text_benchmark_path)
+
+    queue_readiness = await broker_status()
+    redis_readiness = await redis_status()
     return {
         "status": "operational",
         "version": config.app_version,
@@ -400,8 +536,84 @@ async def health_check():
             "integrity_hashed_evidence": True,
             "guided_official_reporting": True,
             "realtime_websocket": True,
+            "localized_ai_explanations": True,
+            "rabbitmq_jobs": queue_readiness,
+            "redis_coordination": redis_readiness,
+            "mcp_adapter": {
+                "available": True,
+                "status": "external_process",
+                "transport": "stdio",
+                "authenticated_tools": True,
+            },
+        },
+        "training_readiness": {
+            "text_records": text_records,
+            "text_dataset_type": "template_generated",
+            "text_training_metadata": text_metadata,
+            "text_external_benchmark": text_benchmark,
+            "currency_images": currency_images,
+            "currency_dataset_ready": currency_images >= 500 and bool(currency_manifest),
+            "currency_dataset_verified": False,
+            "currency_label_assurance": currency_manifest.get(
+                "label_assurance",
+                "No research dataset manifest is installed",
+            ),
+            "currency_dataset_source": {
+                "dataset": currency_manifest.get("source_dataset"),
+                "url": currency_manifest.get("source_url"),
+                "license": currency_manifest.get("license"),
+            }
+            if currency_manifest
+            else None,
+            "supervised_currency_model_ready": vision_model_path.exists(),
+            "vision_training_metadata": vision_metadata,
+            "xgboost_model_ready": xgboost_model_path.exists(),
+            "xgboost_training_metadata": xgboost_metadata,
+            "production_accuracy_claimed": False,
+        },
+        "security_readiness": {
+            "jwt_secret_configured": len(os.getenv("JWT_SECRET", "")) >= 32,
+            "password_kdf": "PBKDF2-HMAC-SHA256",
+            "password_kdf_iterations": 600_000,
+            "login_rate_limiting": True,
+            "distributed_rate_limiting": redis_readiness["status"] == "ready",
+            "security_headers": True,
         },
     }
+
+
+@app.post("/api/jobs/analyze/text", status_code=202)
+async def submit_text_job(
+    request: AsyncTextAnalysisRequest,
+    http_request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Queue a durable text analysis; RabbitMQ receives only the opaque job ID."""
+    if not jobs_enabled():
+        raise HTTPException(status_code=503, detail="Asynchronous jobs are disabled")
+    job = create_job(
+        user["id"],
+        {
+            "text": request.text,
+            "context": request.context,
+            "language": normalize_language(request.language),
+        },
+    )
+    try:
+        await publish_job(job["job_id"], http_request.headers.get("X-Request-ID"))
+    except Exception as exc:
+        logger.error("Unable to publish analysis job %s: %s", job.get("job_id"), exc)
+        fail_job(job["job_id"], "Queue publication failed")
+        raise HTTPException(status_code=503, detail="Analysis queue is unavailable") from exc
+    return job
+
+
+@app.get("/api/jobs/{job_id}")
+async def job_status(job_id: str, user: dict = Depends(get_current_user)):
+    job = get_job(user["id"], job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @app.post("/api/analyze")
@@ -409,6 +621,7 @@ async def analyze_multimodal(
     text: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
     audio: Optional[UploadFile] = File(None),
+    language: str = Form("en"),
     user: Optional[dict] = Depends(get_optional_user),
 ):
     """
@@ -445,6 +658,7 @@ async def analyze_multimodal(
             text=text,
             image_bytes=image_bytes,
             audio_bytes=audio_bytes,
+            language=normalize_language(language),
         )
         result = _persist_if_user(user, _case_type(text, image_bytes, audio_bytes), result)
         return JSONResponse(content=result)
@@ -461,7 +675,11 @@ async def analyze_text(request: TextAnalysisRequest, user: Optional[dict] = Depe
         raise HTTPException(status_code=503, detail="System not initialized")
 
     try:
-        result = await orchestrator.process(text=request.text)
+        result = await orchestrator.process(
+            text=request.text,
+            context=request.context,
+            language=normalize_language(request.language),
+        )
         result = _persist_if_user(user, "text", result)
         return JSONResponse(content=result)
     except Exception as e:
@@ -470,7 +688,11 @@ async def analyze_text(request: TextAnalysisRequest, user: Optional[dict] = Depe
 
 
 @app.post("/api/analyze/image")
-async def analyze_image(image: UploadFile = File(...), user: Optional[dict] = Depends(get_optional_user)):
+async def analyze_image(
+    image: UploadFile = File(...),
+    language: str = Form("en"),
+    user: Optional[dict] = Depends(get_optional_user),
+):
     """Image-only analysis — counterfeit currency detection."""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="System not initialized")
@@ -478,7 +700,10 @@ async def analyze_image(image: UploadFile = File(...), user: Optional[dict] = De
     image_bytes = await _read_upload(image, kind="image")
 
     try:
-        result = await orchestrator.process(image_bytes=image_bytes)
+        result = await orchestrator.process(
+            image_bytes=image_bytes,
+            language=normalize_language(language),
+        )
         result = _persist_if_user(user, "image", result)
         return JSONResponse(content=result)
     except Exception as e:
@@ -487,7 +712,11 @@ async def analyze_image(image: UploadFile = File(...), user: Optional[dict] = De
 
 
 @app.post("/api/analyze/audio")
-async def analyze_audio(audio: UploadFile = File(...), user: Optional[dict] = Depends(get_optional_user)):
+async def analyze_audio(
+    audio: UploadFile = File(...),
+    language: str = Form("en"),
+    user: Optional[dict] = Depends(get_optional_user),
+):
     """Audio-only analysis — scam call detection + voice spoofing."""
     if not orchestrator:
         raise HTTPException(status_code=503, detail="System not initialized")
@@ -495,7 +724,10 @@ async def analyze_audio(audio: UploadFile = File(...), user: Optional[dict] = De
     audio_bytes = await _read_upload(audio, kind="audio")
 
     try:
-        result = await orchestrator.process(audio_bytes=audio_bytes)
+        result = await orchestrator.process(
+            audio_bytes=audio_bytes,
+            language=normalize_language(language),
+        )
         result = _persist_if_user(user, "audio", result)
         return JSONResponse(content=result)
     except Exception as e:
@@ -516,7 +748,10 @@ async def analyze_turn_by_turn(request: TurnByTurnRequest):
         nlp = orchestrator._nlp_agent
         if not nlp._initialized:
             await nlp.initialize()
-        trajectory = await nlp.analyze_turn_by_turn(request.turns)
+        trajectory = await nlp.analyze_turn_by_turn(
+            request.turns,
+            language=normalize_language(request.language),
+        )
         return JSONResponse(content={"trajectory": trajectory})
     except Exception as e:
         logger.error(f"Turn-by-turn analysis failed: {e}", exc_info=True)

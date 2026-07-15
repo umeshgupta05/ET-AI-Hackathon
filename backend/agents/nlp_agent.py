@@ -1,7 +1,7 @@
 """
 NLP/LLM Agent — Scam Detection with Agentic Reasoning.
 
-Uses Kimi K2 (via Groq) for multi-step agentic reasoning:
+Uses Kimi K2.5 (via OpenRouter) for multi-step agentic reasoning:
 - Hierarchical multi-role CoT prompting (Investigator → Policy Checker → Risk Assessor)
 - RAG-grounded verdicts (retrieval from known scam pattern corpus)
 - DistilBERT text classifier as independent voting signal
@@ -12,6 +12,8 @@ This is the core AI reasoning engine — not a rules engine, not a simple classi
 import json
 import logging
 from typing import Optional
+
+from localization import localized_fallback, model_language_instruction, normalize_language
 
 from models.nlp.llm_client import get_llm_client
 from models.nlp.rag_engine import get_rag_engine
@@ -25,6 +27,7 @@ logger = logging.getLogger(__name__)
 INVESTIGATOR_PROMPT = """You are the INVESTIGATOR agent in a multi-agent scam detection system.
 Your role: Analyze the conversation/transcript for suspicious patterns.
 
+Return at most four of the strongest suspicious elements. Keep every string concise.
 For each suspicious element, output:
 1. What pattern you found (e.g., "authority impersonation", "urgency creation")
 2. The specific text evidence
@@ -53,7 +56,7 @@ You will receive:
 1. The Investigator's findings
 2. Retrieved known scam patterns from our RAG database
 
-For each finding, determine:
+Evaluate at most four findings and keep every string concise. For each finding, determine:
 - Does it match a known scam pattern? (cite which one)
 - Is the evidence strong enough to support the finding?
 - Could this be a false positive? (legitimate scenario explanation)
@@ -82,6 +85,7 @@ You will receive:
 3. Text classifier's independent score
 4. RAG semantic deviation score
 
+Keep the reasoning to two short sentences and return at most four indicators.
 Produce a final verdict considering:
 - Strength of evidence (multiple independent signals agreeing = higher confidence)
 - False positive risk (citizen-facing tools MUST have very low false positive rate)
@@ -103,7 +107,7 @@ class NLPAgent:
     Multi-model NLP agent for scam detection.
 
     Uses 3 independent AI models voting:
-    1. Kimi K2 (agentic LLM reasoning via Groq)
+    1. Kimi K2.5 (agentic LLM reasoning via OpenRouter)
     2. DistilBERT (text classification)
     3. RAG (semantic similarity + deviation scoring)
 
@@ -126,7 +130,7 @@ class NLPAgent:
         await self._rag.initialize()
         await self._text_classifier.initialize()
         self._initialized = True
-        logger.info(" NLP Agent ready (Groq GPT-OSS + DistilBERT + Hybrid RAG)")
+        logger.info(" NLP Agent ready (Kimi K2.5 + DistilBERT + Hybrid RAG)")
 
     async def analyze(self, text: str, context: Optional[dict] = None) -> dict:
         """
@@ -154,46 +158,32 @@ class NLPAgent:
             f" RAG matches: {len(rag_matches)}, deviation: {semantic_deviation:.3f}"
         )
 
-        # ─── Independent Signal 3: Kimi K2 Multi-Role CoT ────────────
-        agent_trace = []
-
-        # Step 1: Investigator
-        investigator_result = await self._run_investigator(text)
-        agent_trace.append(
-            {
-                "role": "investigator",
-                "result": investigator_result,
-            }
-        )
-
-        # Step 2: Policy Checker (with RAG context)
-        policy_result = await self._run_policy_checker(investigator_result, rag_matches)
-        agent_trace.append(
-            {
-                "role": "policy_checker",
-                "result": policy_result,
-            }
-        )
-
-        # Step 3: Risk Assessor (final verdict)
+        # ─── Independent Signal 3: Kimi K2.5 Multi-Role CoT ─────────
         audio_spoof_score = context.get("audio_spoof_score", None) if context else None
-        risk_result = await self._run_risk_assessor(
-            investigator_result,
-            policy_result,
+        response_language = normalize_language(
+            context.get("response_language") if context else "en"
+        )
+        multi_role = await self._run_multi_role_analysis(
+            text,
+            rag_matches,
             text_classification,
             semantic_deviation,
             audio_spoof_score,
+            response_language,
         )
-        agent_trace.append(
-            {
-                "role": "risk_assessor",
-                "result": risk_result,
-            }
-        )
+        investigator_result = multi_role["investigator"]
+        policy_result = multi_role["policy_checker"]
+        risk_result = multi_role["risk_assessor"]
+        agent_trace = [
+            {"role": "investigator", "result": investigator_result},
+            {"role": "policy_checker", "result": policy_result},
+            {"role": "risk_assessor", "result": risk_result},
+        ]
 
         # ─── Fuse all signals ────────────────────────────────────────
+        llm_scam_score = self._llm_scam_score(risk_result)
         fused_confidence = self._fuse_signals(
-            llm_score=risk_result.get("confidence", 0.5),
+            llm_score=llm_scam_score,
             text_classifier_score=text_classification["scam_score"],
             semantic_deviation=semantic_deviation,
         )
@@ -216,14 +206,19 @@ class NLPAgent:
             "risk_level": risk_result.get("risk_level", "medium"),
             "agent_trace": agent_trace,
             "text_classifier_score": text_classification["scam_score"],
+            "text_binary_score": text_classification.get(
+                "binary_fraud_score", text_classification["scam_score"]
+            ),
+            "llm_scam_score": round(llm_scam_score, 4),
             "semantic_deviation": semantic_deviation,
             "retrieved_pattern_matches": retrieved_patterns,
             "linguistic_features": text_classification.get("features", {}),
             "reasoning": risk_result.get("reasoning", ""),
             "key_indicators": risk_result.get("key_indicators", []),
             "recommended_action": risk_result.get("recommended_action", ""),
+            "response_language": response_language,
             "techniques_used": [
-                "Groq GPT-OSS (agentic LLM reasoning)",
+                "Kimi K2.5 (agentic LLM reasoning)",
                 "Hierarchical Multi-Role CoT Prompting",
                 "DistilBERT (zero-shot NLI classification)",
                 "RAG (ChromaDB + sentence-transformers)",
@@ -231,6 +226,107 @@ class NLPAgent:
                 "Linguistic Feature Extraction",
             ],
         }
+
+    async def _run_multi_role_analysis(
+        self,
+        text: str,
+        rag_matches: list,
+        text_classification: dict,
+        semantic_deviation: float,
+        audio_spoof_score: Optional[float],
+        response_language: str = "en",
+    ) -> dict:
+        """Run the three review roles in one structured Kimi inference."""
+        rag_context = [
+            {
+                "category": match["category"],
+                "pattern": match["document"][:180],
+                "similarity": round(match["similarity"], 3),
+            }
+            for match in rag_matches[:3]
+        ]
+        evidence = {
+            "conversation": text,
+            "known_patterns": rag_context,
+            "text_classifier_score": round(text_classification["scam_score"], 3),
+            "semantic_deviation": round(semantic_deviation, 3),
+            "audio_spoof_score": audio_spoof_score,
+        }
+        system = """You are a three-role fraud review panel. Analyze the evidence once,
+then return ONLY compact valid JSON with exactly these top-level keys:
+{
+  "investigator": {
+    "findings": [{"pattern": "short string", "evidence": "short quote", "confidence": 0.0, "severity": "low|medium|high|critical"}],
+    "preliminary_assessment": "short string",
+    "scam_likelihood": 0.0
+  },
+  "policy_checker": {
+    "verified_findings": [{"pattern": "short string", "matched_known_pattern": "string or null", "match_confidence": 0.0, "false_positive_risk": "low|medium|high", "reasoning": "short string"}],
+    "pattern_match_summary": "short string",
+    "adjusted_scam_likelihood": 0.0
+  },
+  "risk_assessor": {
+    "verdict": "active_scam_high_confidence|likely_scam|suspicious|likely_legitimate|legitimate",
+    "confidence": 0.0,
+    "risk_level": "critical|high|medium|low|none",
+    "reasoning": "two short sentences",
+    "key_indicators": ["at most four short strings"],
+    "recommended_action": "one short sentence"
+  }
+}
+Use at most four findings. Give extra weight when independent signals agree, and avoid false positives.
+
+""" + model_language_instruction(response_language)
+        try:
+            result = await self._llm.reason(
+                system=system,
+                user=json.dumps(evidence, ensure_ascii=False),
+                json_mode=True,
+                temperature=0.1,
+                max_tokens=3000,
+            )
+            parsed = json.loads(result["content"])
+            return {
+                "investigator": parsed["investigator"],
+                "policy_checker": parsed["policy_checker"],
+                "risk_assessor": parsed["risk_assessor"],
+            }
+        except Exception as exc:
+            logger.warning(f"Multi-role Kimi analysis failed: {exc}")
+            score = min(
+                max(
+                    text_classification["scam_score"] * 0.6
+                    + semantic_deviation * 0.4,
+                    0.0,
+                ),
+                1.0,
+            )
+            if score >= 0.7:
+                verdict, risk_level = "likely_scam", "high"
+            elif score >= 0.45:
+                verdict, risk_level = "suspicious", "medium"
+            else:
+                verdict, risk_level = "likely_legitimate", "low"
+            return {
+                "investigator": {
+                    "findings": [],
+                    "preliminary_assessment": "LLM review unavailable; independent signals used",
+                    "scam_likelihood": score,
+                },
+                "policy_checker": {
+                    "verified_findings": [],
+                    "pattern_match_summary": "Hybrid retrieval evidence retained",
+                    "adjusted_scam_likelihood": score,
+                },
+                "risk_assessor": {
+                    "verdict": verdict,
+                    "confidence": score,
+                    "risk_level": risk_level,
+                    "reasoning": localized_fallback(response_language, "reasoning"),
+                    "key_indicators": [],
+                    "recommended_action": localized_fallback(response_language, "action"),
+                },
+            }
 
     async def _run_investigator(self, text: str) -> dict:
         """Run the Investigator role — find suspicious patterns."""
@@ -240,7 +336,7 @@ class NLPAgent:
                 user=f"Analyze this conversation/message for scam patterns:\n\n{text}",
                 json_mode=True,
                 temperature=0.2,
-                max_tokens=1024,
+                max_tokens=512,
             )
             return json.loads(result["content"])
         except (json.JSONDecodeError, KeyError) as e:
@@ -280,7 +376,7 @@ class NLPAgent:
                 user=user_msg,
                 json_mode=True,
                 temperature=0.2,
-                max_tokens=1024,
+                max_tokens=512,
             )
             return json.loads(result["content"])
         except (json.JSONDecodeError, KeyError):
@@ -323,7 +419,7 @@ class NLPAgent:
                 user=evidence_summary,
                 json_mode=True,
                 temperature=0.1,
-                max_tokens=512,
+                max_tokens=384,
             )
             return json.loads(result["content"])
         except (json.JSONDecodeError, KeyError):
@@ -359,7 +455,24 @@ class NLPAgent:
         )
         return min(max(fused, 0.0), 1.0)
 
-    async def analyze_turn_by_turn(self, turns: list[str]) -> list[dict]:
+    @staticmethod
+    def _llm_scam_score(risk_result: dict) -> float:
+        """Normalize confidence into probability of scam, respecting verdict direction."""
+        confidence = min(max(float(risk_result.get("confidence", 0.5)), 0.0), 1.0)
+        verdict = str(risk_result.get("verdict", "suspicious")).lower()
+        if verdict == "legitimate":
+            return min(1.0 - confidence, 0.10)
+        if verdict == "likely_legitimate":
+            return min(1.0 - confidence, 0.30)
+        if verdict == "suspicious":
+            return 0.5 + (confidence - 0.5) * 0.25
+        if verdict == "active_scam_high_confidence":
+            return max(confidence, 0.90)
+        return max(confidence, 0.70)
+
+    async def analyze_turn_by_turn(
+        self, turns: list[str], language: str = "en"
+    ) -> list[dict]:
         """
         Analyze a conversation turn by turn, building confidence trajectory.
         For live-demo: shows confidence climbing as scam patterns accumulate.
@@ -369,22 +482,47 @@ class NLPAgent:
 
         for i, turn in enumerate(turns):
             accumulated_text += f"\n{turn}"
-            result = await self.analyze(accumulated_text.strip())
-
-        trajectory.append(
-            {
-                "turn": i + 1,
-                "turn_text": turn[:100],
-                "fused_confidence": result["fused_confidence"],
-                "verdict": result["verdict"],
-                "reasoning": result.get("reasoning", "")[:200],
-                "confidence_delta": (
-                    result["fused_confidence"] - trajectory[-1]["fused_confidence"]
-                    if trajectory
-                    else result["fused_confidence"]
-                ),
-            }
-        )
+            current_text = accumulated_text.strip()
+            is_final_turn = i == len(turns) - 1
+            if is_final_turn:
+                result = await self.analyze(
+                    current_text,
+                    context={"response_language": normalize_language(language)},
+                )
+                confidence = result["fused_confidence"]
+                verdict = result["verdict"]
+                reasoning = result.get("reasoning", "")[:200]
+                analysis_mode = "full_multi_role"
+            else:
+                classification = self._text_classifier.classify_scam(current_text)
+                deviation = self._rag.compute_semantic_deviation(current_text)
+                confidence = min(
+                    max(classification["scam_score"] * 0.70 + deviation * 0.30, 0.0),
+                    1.0,
+                )
+                if confidence >= 0.70:
+                    verdict = "likely_scam"
+                elif confidence >= 0.45:
+                    verdict = "suspicious"
+                else:
+                    verdict = "likely_legitimate"
+                reasoning = localized_fallback(language, "incremental")
+                analysis_mode = "incremental_local"
+            trajectory.append(
+                {
+                    "turn": i + 1,
+                    "turn_text": turn[:100],
+                    "fused_confidence": round(confidence, 4),
+                    "verdict": verdict,
+                    "reasoning": reasoning,
+                    "analysis_mode": analysis_mode,
+                    "confidence_delta": (
+                        confidence - trajectory[-1]["fused_confidence"]
+                        if trajectory
+                        else confidence
+                    ),
+                }
+            )
 
         return trajectory
 
@@ -394,7 +532,7 @@ class NLPAgent:
             "status": "ready" if self._initialized else "not_initialized",
             "models": 3,
             "techniques": [
-                "Groq GPT-OSS agentic reasoning",
+                "Kimi K2.5 agentic reasoning",
                 "Hierarchical Multi-Role CoT",
                 "DistilBERT zero-shot NLI",
                 "RAG with semantic deviation",

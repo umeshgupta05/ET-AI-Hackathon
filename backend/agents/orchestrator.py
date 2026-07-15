@@ -53,6 +53,8 @@ class FraudAnalysisState(TypedDict, total=False):
     image_bytes: Optional[bytes]
     audio_bytes: Optional[bytes]
     modality: str
+    graph_context: dict
+    response_language: str
 
     # ─── Routing ───
     agents_to_invoke: list[str]
@@ -74,6 +76,7 @@ class FraudAnalysisState(TypedDict, total=False):
     fusion_method: str
     xgboost_features: dict
     raw_xgboost_score: Optional[float]
+    xgboost_weight: Optional[float]
 
     # ─── Calibration ───
     calibrated_score: float
@@ -83,6 +86,7 @@ class FraudAnalysisState(TypedDict, total=False):
     trace: list[dict]
     start_time: float
     iteration: int
+    retry_requested: bool
 
 
 # ─── Routing Prompt ──────────────────────────────────────────────────────
@@ -243,6 +247,7 @@ class FusionOrchestrator:
                 "speech_node": "speech_node",
                 "nlp_node": "nlp_node",
                 "graph_node": "graph_node",
+                "fusion_node": "fusion_node",
             },
         )
 
@@ -252,10 +257,15 @@ class FusionOrchestrator:
             {
                 "nlp_node": "nlp_node",
                 "graph_node": "graph_node",
+                "fusion_node": "fusion_node",
             },
         )
 
-        graph.add_edge("nlp_node", "graph_node")
+        graph.add_conditional_edges(
+            "nlp_node",
+            self._after_nlp,
+            {"graph_node": "graph_node", "fusion_node": "fusion_node"},
+        )
         graph.add_edge("graph_node", "fusion_node")
         graph.add_edge("fusion_node", "evaluator_node")
 
@@ -276,7 +286,7 @@ class FusionOrchestrator:
     # ─── Node Implementations ────────────────────────────────────────
 
     async def _route_node(self, state: FraudAnalysisState) -> dict:
-        """LLM-powered routing decision using Kimi K2."""
+        """LLM-powered routing decision using Kimi K2.5."""
         modality = state.get("modality", "text")
         text = state.get("text", "")
         image_bytes = state.get("image_bytes")
@@ -329,6 +339,12 @@ class FusionOrchestrator:
                     "reasoning": "Fallback routing — invoking all relevant agents",
                 }
 
+        graph_context = state.get("graph_context") or {}
+        if graph_context.get("phone_number") or graph_context.get("account_id"):
+            if "graph" not in routing["agents_to_invoke"]:
+                routing["agents_to_invoke"].append("graph")
+            routing["reasoning"] += " + entity-specific fraud graph lookup"
+
         trace_entry = {
             "step": "routing",
             "agents": routing.get("agents_to_invoke", []),
@@ -353,13 +369,16 @@ class FusionOrchestrator:
         try:
             logger.info("  → [LangGraph] Vision Agent")
             await self._vision_agent.initialize()
-            vision_result = await self._vision_agent.analyze(image_bytes)
+            vision_result = await self._vision_agent.analyze(
+                image_bytes,
+                language=state.get("response_language", "en"),
+            )
 
             trace_entry = {
                 "step": "vision_agent",
                 "verdict": vision_result.get("verdict"),
                 "confidence": vision_result.get("model_confidence"),
-                "techniques": ["YOLOv8", "EfficientNet+Transformer", "ELA", "FFT", "NPR", "CLIP", "Grad-CAM"],
+                "techniques": vision_result.get("techniques_used", []),
                 "timestamp": time.time() - start_time,
             }
             return {
@@ -405,7 +424,7 @@ class FusionOrchestrator:
             }
 
     async def _nlp_node(self, state: FraudAnalysisState) -> dict:
-        """NLP agent: Kimi K2 reasoning + DistilBERT + RAG."""
+        """NLP agent: Kimi K2.5 reasoning + DistilBERT + RAG."""
         transcript = state.get("transcript_text", state.get("text", ""))
         start_time = state.get("start_time", time.time())
 
@@ -414,7 +433,9 @@ class FusionOrchestrator:
 
         try:
             logger.info("  → [LangGraph] NLP Agent")
-            nlp_context = {}
+            nlp_context = {
+                "response_language": state.get("response_language", "en"),
+            }
             speech_result = state.get("speech_result")
             if speech_result:
                 spoof_data = speech_result.get("spoof_detection", {})
@@ -426,7 +447,7 @@ class FusionOrchestrator:
                 "step": "nlp_agent",
                 "verdict": nlp_result.get("verdict"),
                 "confidence": nlp_result.get("fused_confidence"),
-                "techniques": ["Groq GPT-OSS CoT", "DistilBERT NLI", "Hybrid RAG (BM25 + Dense + Rerank)", "Linguistic Features"],
+                "techniques": ["Kimi K2.5 CoT", "DistilBERT NLI", "Hybrid RAG (BM25 + Dense + Rerank)", "Linguistic Features"],
                 "timestamp": time.time() - start_time,
             }
             return {
@@ -445,7 +466,17 @@ class FusionOrchestrator:
 
         try:
             logger.info("  → [LangGraph] Graph Agent")
-            graph_result = self._graph_agent.analyze_network()
+            graph_context = state.get("graph_context") or {}
+            entity_result = await self._graph_agent.check_entity(
+                phone_number=graph_context.get("phone_number"),
+                account_id=graph_context.get("account_id"),
+            )
+            graph_result = {
+                "entity_analysis": entity_result,
+                "network_risk_score": entity_result.get("risk_score", 0.0),
+                "high_risk_nodes": [],
+                "communities": [],
+            }
 
             trace_entry = {
                 "step": "graph_agent",
@@ -537,6 +568,7 @@ class FusionOrchestrator:
             "fusion_method": fusion_method,
             "xgboost_features": ensemble_result["features"],
             "raw_xgboost_score": ensemble_result.get("raw_xgboost_score"),
+            "xgboost_weight": ensemble_result.get("xgboost_weight"),
             "trace": state.get("trace", []) + [trace_entry],
         }
 
@@ -550,7 +582,15 @@ class FusionOrchestrator:
         start_time = state.get("start_time", time.time())
 
         is_ambiguous = 0.40 <= fused_score <= 0.60
-        should_retry = is_ambiguous and iteration < 1  # Max 1 retry
+        nlp_result = state.get("nlp_result") or {}
+        nlp_reasoning = str(nlp_result.get("reasoning", "")).lower()
+        nlp_inconclusive = nlp_result.get("verdict") == "uncertain" and (
+            not nlp_reasoning
+            or "inconclusive" in nlp_reasoning
+            or "failed" in nlp_reasoning
+            or "error" in nlp_reasoning
+        )
+        should_retry = nlp_inconclusive and iteration < 1
 
         trace_entry = {
             "step": "evaluator",
@@ -563,6 +603,7 @@ class FusionOrchestrator:
 
         return {
             "iteration": iteration + 1,
+            "retry_requested": should_retry,
             "trace": state.get("trace", []) + [trace_entry],
         }
 
@@ -575,14 +616,19 @@ class FusionOrchestrator:
 
         if calibrated_score > 0.80:
             risk_level = "critical"
+            calibrated_verdict = "high_risk"
         elif calibrated_score > 0.60:
             risk_level = "high"
+            calibrated_verdict = "high_risk"
         elif calibrated_score > 0.40:
             risk_level = "medium"
+            calibrated_verdict = "medium_risk"
         elif calibrated_score > 0.20:
             risk_level = "low"
+            calibrated_verdict = "low_risk"
         else:
             risk_level = "safe"
+            calibrated_verdict = "safe"
 
         trace_entry = {
             "step": "calibration",
@@ -595,6 +641,7 @@ class FusionOrchestrator:
         return {
             "calibrated_score": calibrated_score,
             "risk_level": risk_level,
+            "verdict": calibrated_verdict,
             "trace": state.get("trace", []) + [trace_entry],
         }
 
@@ -617,25 +664,27 @@ class FusionOrchestrator:
             return "speech_node"
         elif "nlp" in agents:
             return "nlp_node"
-        else:
+        elif "graph" in agents:
             return "graph_node"
+        return "fusion_node"
 
     def _after_speech(self, state: FraudAnalysisState) -> str:
         """After speech, route to NLP or graph."""
         agents = state.get("agents_to_invoke", [])
         if "nlp" in agents:
             return "nlp_node"
-        else:
+        elif "graph" in agents:
             return "graph_node"
+        return "fusion_node"
+
+    def _after_nlp(self, state: FraudAnalysisState) -> str:
+        """Use graph intelligence only for an explicitly supplied entity."""
+        return "graph_node" if "graph" in state.get("agents_to_invoke", []) else "fusion_node"
 
     def _should_recalibrate(self, state: FraudAnalysisState) -> str:
         """Evaluator decision: retry or finalize."""
-        iteration = state.get("iteration", 0)
-        fused_score = state.get("fused_score", 0.5)
-
-        is_ambiguous = 0.40 <= fused_score <= 0.60
-        if is_ambiguous and iteration <= 1:
-            logger.info(f"  ↻ [LangGraph] Evaluator: ambiguous ({fused_score:.3f}), re-analyzing...")
+        if state.get("retry_requested", False):
+            logger.info("  ↻ [LangGraph] Evaluator: inconclusive NLP result, re-analyzing...")
             return "nlp_node"
         return "calibration_node"
 
@@ -646,6 +695,8 @@ class FusionOrchestrator:
         text: Optional[str] = None,
         image_bytes: Optional[bytes] = None,
         audio_bytes: Optional[bytes] = None,
+        context: Optional[dict] = None,
+        language: str = "en",
     ) -> dict:
         """
         Main entry point — process citizen input through the LangGraph pipeline.
@@ -659,6 +710,8 @@ class FusionOrchestrator:
             "text": text,
             "image_bytes": image_bytes,
             "audio_bytes": audio_bytes,
+            "graph_context": context or {},
+            "response_language": language,
             "trace": [],
         }
 
@@ -685,6 +738,7 @@ class FusionOrchestrator:
             "verdict": final_state.get("verdict", "unknown"),
             "confidence": round(final_state.get("calibrated_score", 0.5), 4),
             "risk_level": final_state.get("risk_level", "unknown"),
+            "response_language": final_state.get("response_language", language),
             "agent_results": agent_results,
             "agent_visualizations": {
                 "attention_map": (final_state.get("vision_result") or {}).get("attention_map_base64"),
@@ -699,6 +753,7 @@ class FusionOrchestrator:
                 "fusion_method": final_state.get("fusion_method", "weighted_fallback"),
                 "xgboost_features": final_state.get("xgboost_features", {}),
                 "raw_xgboost_score": final_state.get("raw_xgboost_score"),
+                "xgboost_weight": final_state.get("xgboost_weight"),
             },
             "trace": final_state.get("trace", []),
             "processing_time_seconds": round(processing_time, 2),

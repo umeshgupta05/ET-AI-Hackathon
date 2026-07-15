@@ -13,9 +13,10 @@ from typing import Any, Optional
 from jose import JWTError, jwt
 
 DB_PATH = Path(__file__).resolve().parent / "data" / "app.db"
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-change-me-citizen-fraud-shield")
+JWT_SECRET = os.getenv("JWT_SECRET") or "dev-change-me-citizen-fraud-shield"
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "480"))
+PBKDF2_ITERATIONS = 600_000
 
 
 SUPPORTED_LANGUAGES = {
@@ -75,18 +76,36 @@ def init_db() -> None:
 
 def _hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 150_000)
-    return f"pbkdf2_sha256${salt}${digest.hex()}"
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        PBKDF2_ITERATIONS,
+    )
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest.hex()}"
 
 
 def _verify_password(password: str, stored: str) -> bool:
-    try:
-        method, salt, expected = stored.split("$", 2)
-    except ValueError:
+    parts = stored.split("$")
+    if len(parts) == 3:
+        method, salt, expected = parts
+        iterations = 150_000
+    elif len(parts) == 4:
+        method, raw_iterations, salt, expected = parts
+        try:
+            iterations = int(raw_iterations)
+        except ValueError:
+            return False
+    else:
         return False
     if method != "pbkdf2_sha256":
         return False
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 150_000)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        iterations,
+    )
     return hmac.compare_digest(digest.hex(), expected)
 
 

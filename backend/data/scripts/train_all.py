@@ -1,7 +1,7 @@
 """
 Master Training Pipeline — Run All Training Steps.
 
-Generates datasets, trains all models, and saves them.
+Trains models from available datasets and saves them.
 
 Usage:
     cd backend
@@ -9,15 +9,16 @@ Usage:
 
 This will:
 1. Generate the scam text dataset (240+ samples)
-2. Generate synthetic currency images (500 images)
-3. Fine-tune DistilBERT for scam detection
-4. Train Hybrid CNN-Transformer for forgery detection
-5. Train GAT for fraud network classification
-6. Train XGBoost fusion meta-learner
+2. Fine-tune DistilBERT for scam detection
+3. Train vision only when verified real currency data is available
+4. Train GAT for fraud network classification
+5. Train XGBoost only from labelled out-of-fold agent predictions
 """
 
 import sys
 import time
+import argparse
+import asyncio
 from pathlib import Path
 
 # Fix Windows encoding
@@ -27,7 +28,7 @@ sys.stderr.reconfigure(encoding='utf-8')
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
-def main():
+def main(smoke: bool = False):
     start = time.time()
     print("=" * 70)
     print("🛡️  DIGITAL PUBLIC SAFETY SHIELD — Master Training Pipeline")
@@ -48,7 +49,7 @@ def main():
 
     try:
         from train_text_classifier import train as train_text
-        train_text()
+        train_text(smoke=smoke)
     except Exception as e:
         print(f"⚠️ Text classifier training failed: {e}")
         print("   This might need: pip install transformers torch")
@@ -60,10 +61,10 @@ def main():
 
     try:
         from train_vision_classifier import train as train_vision
-        train_vision()
+        train_vision(smoke=smoke)
     except Exception as e:
         print(f"⚠️ Vision classifier training failed: {e}")
-        print("   This might need: pip install timm torch torchvision")
+        print("   Add verified images under data/training/currency/genuine and counterfeit")
 
     # ─── Step 4: Train Graph Model ────────────────────────────
     print("\n\n" + "▶" * 35)
@@ -72,7 +73,7 @@ def main():
 
     try:
         from train_graph_model import train as train_graph
-        train_graph()
+        train_graph(smoke=smoke)
     except Exception as e:
         print(f"⚠️ GAT training failed: {e}")
         print("   This might need: pip install networkx torch")
@@ -83,11 +84,13 @@ def main():
     print("â–¶" * 35)
 
     try:
+        from prepare_fusion_validation import main as prepare_fusion_validation
         from train_xgboost_fusion import train as train_xgboost
-        train_xgboost(smoke=False)
+        asyncio.run(prepare_fusion_validation())
+        train_xgboost(smoke=smoke)
     except Exception as e:
         print(f"âš ï¸ XGBoost fusion training failed: {e}")
-        print("   This might need: pip install xgboost")
+        print("   Add labelled data/training/fusion_validation.jsonl")
 
     elapsed = time.time() - start
     print("\n\n" + "=" * 70)
@@ -112,4 +115,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--smoke", action="store_true")
+    arguments = parser.parse_args()
+    main(smoke=arguments.smoke)

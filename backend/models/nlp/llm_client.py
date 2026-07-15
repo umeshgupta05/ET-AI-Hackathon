@@ -1,9 +1,9 @@
 """
 Unified LLM Client — Multi-provider with automatic failover.
 
-Provider chain (all free):
-1. Groq (Kimi K2 / Llama 4 Maverick) — primary, ultra-fast
-2. OpenRouter (DeepSeek V4 Flash) — fallback
+Provider chain:
+1. OpenRouter (Kimi K2.5) — primary reasoning and multimodal provider
+2. Groq (GPT-OSS / Llama) — low-latency fallback
 3. Local HuggingFace (Phi-4-mini) — emergency offline
 
 All providers use OpenAI-compatible API format.
@@ -34,24 +34,24 @@ class LLMProvider(str, Enum):
 class LLMRole(str, Enum):
     """Semantic roles — each maps to the best model for the job."""
 
-    REASONING = "reasoning"  # Kimi K2 — agentic scam analysis
-    MULTIMODAL = "multimodal"  # Llama 4 Maverick — sees images
-    ROUTING = "routing"  # Kimi K2 — orchestrator decisions
+    REASONING = "reasoning"  # Kimi K2.5 — agentic scam analysis
+    MULTIMODAL = "multimodal"  # Kimi K2.5 — image and text reasoning
+    ROUTING = "routing"  # Kimi K2.5 — orchestrator decisions
     FAST = "fast"  # Llama 4 Scout — quick classification
 
 
 # Map roles → model IDs per provider
 _MODEL_MAP: dict[LLMProvider, dict[LLMRole, str]] = {
     LLMProvider.GROQ: {
-        LLMRole.REASONING: config.groq.primary_model,  # Kimi K2
+        LLMRole.REASONING: config.groq.primary_model,  # GPT-OSS fallback
         LLMRole.MULTIMODAL: config.groq.multimodal_model,  # Llama 4 Maverick
-        LLMRole.ROUTING: config.groq.primary_model,  # Kimi K2
+        LLMRole.ROUTING: config.groq.primary_model,  # GPT-OSS fallback
         LLMRole.FAST: config.groq.fast_model,  # Llama 4 Scout
     },
     LLMProvider.OPENROUTER: {
         LLMRole.REASONING: config.openrouter.reasoning_model,
-        LLMRole.MULTIMODAL: config.openrouter.free_router,
-        LLMRole.ROUTING: config.openrouter.free_router,
+        LLMRole.MULTIMODAL: config.openrouter.reasoning_model,
+        LLMRole.ROUTING: config.openrouter.reasoning_model,
         LLMRole.FAST: config.openrouter.free_router,
     },
 }
@@ -82,19 +82,19 @@ class LLMClient:
     Usage:
     client = LLMClient()
 
-    # Text reasoning (uses Kimi K2 via Groq)
+    # Text reasoning (uses Kimi K2.5 via OpenRouter)
     result = await client.reason(
     system="You are a scam detection expert.",
     user="Analyze this transcript for scam patterns...",
     )
 
-    # Multimodal (uses Llama 4 Maverick via Groq — sees images)
+    # Multimodal (uses Kimi K2.5 via OpenRouter — sees images)
     result = await client.analyze_image(
     image_base64="...",
     prompt="Analyze this currency note for authenticity...",
     )
 
-    # Tool-use / function calling (uses Kimi K2 via Groq)
+    # Tool-use / function calling (uses Kimi K2.5 via OpenRouter)
     result = await client.reason_with_tools(
     system="...",
     user="...",
@@ -116,7 +116,7 @@ class LLMClient:
                 timeout=config.groq.timeout,
             )
             self._rate_limiters[LLMProvider.GROQ] = RateLimiter(config.groq.max_rpm)
-            logger.info(" Groq provider initialized (GPT-OSS + Llama 4 Scout)")
+            logger.info(" Groq provider initialized (text and multimodal fallback)")
 
         if config.openrouter.api_key:
             self._providers[LLMProvider.OPENROUTER] = AsyncOpenAI(
@@ -130,19 +130,53 @@ class LLMClient:
             self._rate_limiters[LLMProvider.OPENROUTER] = RateLimiter(
                 config.openrouter.max_rpm
             )
-            logger.info(" OpenRouter provider initialized (DeepSeek V4 fallback)")
+            logger.info(" OpenRouter provider initialized (Kimi K2.5 primary, K2.6 free fallback)")
 
         if not self._providers:
             logger.warning(" No LLM API keys configured — only local models available")
 
-    def _get_provider_chain(self) -> list[LLMProvider]:
-        """Return ordered list of available providers."""
+    def _get_provider_chain(self, role: Optional[LLMRole] = None) -> list[LLMProvider]:
+        """Return providers in role-aware priority order."""
         chain = []
-        if LLMProvider.GROQ in self._providers:
-            chain.append(LLMProvider.GROQ)
-        if LLMProvider.OPENROUTER in self._providers:
-            chain.append(LLMProvider.OPENROUTER)
+        prefer_kimi = role in {LLMRole.REASONING, LLMRole.ROUTING, LLMRole.MULTIMODAL}
+        order = (
+            [LLMProvider.OPENROUTER, LLMProvider.GROQ]
+            if prefer_kimi
+            else [LLMProvider.GROQ, LLMProvider.OPENROUTER]
+        )
+        chain.extend(provider for provider in order if provider in self._providers)
         return chain
+
+    def _get_model_attempts(
+        self,
+        role: LLMRole,
+        provider_override: Optional[LLMProvider] = None,
+    ) -> list[tuple[LLMProvider, str]]:
+        """Return ordered provider/model attempts, including the Kimi free fallback."""
+        if provider_override:
+            model = _MODEL_MAP.get(provider_override, {}).get(role)
+            return [(provider_override, model)] if model else []
+
+        attempts: list[tuple[LLMProvider, str]] = []
+        kimi_roles = {LLMRole.REASONING, LLMRole.ROUTING, LLMRole.MULTIMODAL}
+        if role in kimi_roles and LLMProvider.OPENROUTER in self._providers:
+            attempts.extend(
+                [
+                    (LLMProvider.OPENROUTER, config.openrouter.reasoning_model),
+                    (
+                        LLMProvider.OPENROUTER,
+                        config.openrouter.kimi_free_fallback_model,
+                    ),
+                ]
+            )
+
+        for provider in self._get_provider_chain(role):
+            if provider == LLMProvider.OPENROUTER and role in kimi_roles:
+                continue
+            model = _MODEL_MAP.get(provider, {}).get(role)
+            if model:
+                attempts.append((provider, model))
+        return attempts
 
     async def _call_llm(
         self,
@@ -153,23 +187,18 @@ class LLMClient:
         max_tokens: int = 2048,
         response_format: Optional[dict] = None,
         provider_override: Optional[LLMProvider] = None,
+        reasoning_effort: str = "minimal",
     ) -> dict[str, Any]:
         """
         Core LLM call with automatic provider failover.
         Returns dict with 'content', 'tool_calls', 'model', 'provider', 'usage'.
         """
-        providers = (
-            [provider_override] if provider_override else self._get_provider_chain()
-        )
+        attempts = self._get_model_attempts(role, provider_override)
 
         last_error = None
-        for provider in providers:
+        for provider, model in attempts:
             client = self._providers.get(provider)
             if not client:
-                continue
-
-            model = _MODEL_MAP.get(provider, {}).get(role)
-            if not model:
                 continue
 
             try:
@@ -191,7 +220,15 @@ class LLMClient:
                 if response_format:
                     kwargs["response_format"] = response_format
 
-                    logger.info(f" Calling {provider.value} → {model}")
+                if provider == LLMProvider.OPENROUTER:
+                    kwargs["extra_body"] = {
+                        "reasoning": {
+                            "effort": reasoning_effort,
+                            "exclude": True,
+                        }
+                    }
+
+                logger.info(f" Calling {provider.value} → {model}")
                 response = await client.chat.completions.create(**kwargs)
 
                 choice = response.choices[0]
@@ -233,7 +270,7 @@ class LLMClient:
             except Exception as e:
                 last_error = e
                 logger.warning(
-                    f" {provider.value} failed: {e}. Trying next provider..."
+                    f" {provider.value} -> {model} failed: {e}. Trying next fallback..."
                 )
                 continue
 
@@ -253,7 +290,7 @@ class LLMClient:
         json_mode: bool = False,
     ) -> dict[str, Any]:
         """
-        Pure text reasoning using Kimi K2.
+        Pure text reasoning using Kimi K2.5.
         Best for: scam pattern analysis, agentic reasoning, orchestrator decisions.
         """
         messages = [
@@ -278,8 +315,7 @@ class LLMClient:
         max_tokens: int = 2048,
     ) -> dict[str, Any]:
         """
-        Reasoning with function/tool calling using Kimi K2.
-        Kimi K2 excels here — supports 200-300 consecutive tool calls.
+        Reasoning with function/tool calling using Kimi K2.5.
         """
         messages = [
             {"role": "system", "content": system},
@@ -303,8 +339,8 @@ class LLMClient:
         json_mode: bool = False,
     ) -> dict[str, Any]:
         """
-        Multimodal vision-language analysis using Llama 4 Maverick.
-        Maverick natively processes images — no separate vision model needed.
+        Multimodal vision-language analysis using Kimi K2.5.
+        Kimi natively processes images — no separate vision model is required here.
         Use this for: currency note reasoning, fake document detection, screenshot analysis.
         """
         messages = [
@@ -378,7 +414,7 @@ class LLMClient:
     async def test_connection(self) -> dict[str, Any]:
         """Test connectivity to all configured providers."""
         results = {}
-        for provider in self._get_provider_chain():
+        for provider in self._get_provider_chain(LLMRole.REASONING):
             try:
                 result = await self._call_llm(
                     role=LLMRole.FAST,

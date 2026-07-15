@@ -1,7 +1,19 @@
 {
   "base_model": "cross-encoder/nli-distilroberta-base",
-  "dataset_size": 62,
-  "best_val_f1": 0.8,
-  "best_val_acc": 0.7692307692307693,
-  "epochs_trained": 10
+  "dataset_size": 240,
+  "scam_count": 120,
+  "legitimate_count": 120,
+  "best_val_f1": 1.0,
+  "validation_metrics": {
+    "accuracy": 1.0,
+    "f1": 1.0,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "epochs_trained": 10,
+  "training_mode": "full",
+  "split_method": "StratifiedGroupKFold(first fold, n_splits=5)",
+  "train_count": 192,
+  "validation_count": 48,
+  "created_at": "2026-07-14T13:30:22.997374+00:00"
 }

@@ -11,6 +11,7 @@ Usage:
 import json
 import os
 import sys
+import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,7 +26,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 # ─── Configuration ───────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ class ScamDataset(Dataset):
         return item
 
 
-def train():
+def train(smoke: bool = False):
     print("=" * 60)
     print("🎓 Fine-tuning DistilBERT for Scam Detection")
     print("   Pure PyTorch training loop")
@@ -75,12 +76,18 @@ def train():
 
     texts = [s["text"] for s in data]
     labels = [s["label"] for s in data]
+    groups = [s.get("template_group", f"row:{index}") for index, s in enumerate(data)]
     print(f"\nDataset: {len(texts)} samples (Scam: {sum(labels)}, Legit: {len(labels) - sum(labels)})")
 
     # Split
-    train_texts, val_texts, train_labels, val_labels = train_test_split(
-        texts, labels, test_size=0.2, random_state=SEED, stratify=labels
-    )
+    splitter = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=SEED)
+    train_indices, val_indices = next(splitter.split(texts, labels, groups=groups))
+    train_texts = [texts[index] for index in train_indices]
+    val_texts = [texts[index] for index in val_indices]
+    train_labels = [labels[index] for index in train_indices]
+    val_labels = [labels[index] for index in val_indices]
+    if set(np.asarray(groups)[train_indices]) & set(np.asarray(groups)[val_indices]):
+        raise RuntimeError("Template-group leakage detected")
     print(f"  Train: {len(train_texts)}, Val: {len(val_texts)}")
 
     # ─── Tokenize ─────────────────────────────────────────────
@@ -106,17 +113,19 @@ def train():
     # ─── Optimizer ────────────────────────────────────────────
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
     criterion = nn.CrossEntropyLoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
+    training_epochs = 1 if smoke else EPOCHS
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_epochs)
 
     best_f1 = 0.0
     best_state = None
+    best_metrics = None
     patience = 3
     no_improve = 0
 
     # ─── Training Loop ────────────────────────────────────────
-    print(f"\n🚀 Training for {EPOCHS} epochs...")
+    print(f"\n🚀 Training for {training_epochs} epochs...")
 
-    for epoch in range(EPOCHS):
+    for epoch in range(training_epochs):
         # Train
         model.train()
         total_loss = 0
@@ -157,12 +166,18 @@ def train():
         val_prec = precision_score(all_true, all_preds, average="binary", zero_division=0)
         val_rec = recall_score(all_true, all_preds, average="binary", zero_division=0)
 
-        print(f"  Epoch {epoch+1:2d}/{EPOCHS} — Loss: {avg_loss:.4f} | "
+        print(f"  Epoch {epoch+1:2d}/{training_epochs} — Loss: {avg_loss:.4f} | "
               f"Val Acc: {val_acc:.3f} | F1: {val_f1:.3f} | Prec: {val_prec:.3f} | Rec: {val_rec:.3f}")
 
-        if val_f1 > best_f1:
+        if val_f1 > best_f1 + 1e-6:
             best_f1 = val_f1
-            best_state = {k: v.clone() for k, v in model.state_dict().items()}
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            best_metrics = {
+                "accuracy": float(val_acc),
+                "f1": float(val_f1),
+                "precision": float(val_prec),
+                "recall": float(val_rec),
+            }
             no_improve = 0
         else:
             no_improve += 1
@@ -188,8 +203,12 @@ def train():
         "scam_count": int(sum(labels)),
         "legitimate_count": int(len(labels) - sum(labels)),
         "best_val_f1": best_f1,
-        "best_val_acc": val_acc,
+        "validation_metrics": best_metrics,
         "epochs_trained": epoch + 1,
+        "training_mode": "smoke" if smoke else "full",
+        "split_method": "StratifiedGroupKFold(first fold, n_splits=5)",
+        "train_count": len(train_texts),
+        "validation_count": len(val_texts),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     with open(final_path / "training_metadata.json", "w") as f:
@@ -201,4 +220,7 @@ def train():
 
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--smoke", action="store_true")
+    arguments = parser.parse_args()
+    train(smoke=arguments.smoke)

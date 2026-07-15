@@ -96,7 +96,9 @@ class TransformerAttentionHead(nn.Module):
         Returns:
             [B, proj_dim] — attention-weighted classification features
         """
-        if features.dim() == 2:
+        if features.dim() == 4:
+            features = features.flatten(2).transpose(1, 2)  # [B, H*W, C]
+        elif features.dim() == 2:
             features = features.unsqueeze(1)  # [B, 1, D]
 
         B = features.shape[0]
@@ -157,6 +159,7 @@ class HybridForgeryClassifier:
         self._classifier_head = None
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._initialized = False
+        self._trained_weights_loaded = False
         self._backbone_name = "efficientnet_b0"  # Can switch to convnext_tiny
 
     async def initialize(self) -> None:
@@ -174,6 +177,7 @@ class HybridForgeryClassifier:
                 self._backbone_name,
                 pretrained=True,
                 num_classes=0,  # Remove classification head
+                global_pool="",  # Preserve 7x7 spatial tokens for attention
             )
             self._backbone.eval()
             self._backbone.to(self._device)
@@ -216,9 +220,17 @@ class HybridForgeryClassifier:
                     self._backbone.load_state_dict(state["backbone"])
                     self._attention_head.load_state_dict(state["attention_head"])
                     self._classifier_head.load_state_dict(state["classifier_head"])
+                    self._trained_weights_loaded = True
                     logger.info(f"✅ Loaded fine-tuned weights from {trained_path}")
                 except Exception as e:
-                    logger.warning(f"Could not load fine-tuned weights: {e}, using pretrained")
+                    logger.warning(f"Could not load fine-tuned weights: {e}; classifier signal disabled")
+            else:
+                logger.warning("No verified forgery-classifier weights; classifier signal disabled")
+
+            self._backbone.eval()
+            self._attention_head.eval()
+            self._contrastive_head.eval()
+            self._classifier_head.eval()
 
             logger.info(
                 f"✅ Hybrid classifier loaded: {self._backbone_name} backbone "
@@ -240,6 +252,15 @@ class HybridForgeryClassifier:
         """
         if not self._initialized:
             raise RuntimeError("Classifier not initialized")
+        if not self._trained_weights_loaded:
+            return {
+                "genuine_score": 0.5,
+                "counterfeit_score": 0.5,
+                "verdict": "unavailable",
+                "embedding": None,
+                "feature_dim": 0,
+                "model_available": False,
+            }
 
         # Preprocess
         if len(region.shape) == 2:
@@ -252,7 +273,7 @@ class HybridForgeryClassifier:
         tensor = TRANSFORM(region).unsqueeze(0).to(self._device)
 
         # Step 1: CNN backbone — extract local features
-        cnn_features = self._backbone(tensor)  # [1, 1280]
+        cnn_features = self._backbone(tensor)  # [1, 1280, 7, 7]
 
         # Step 2: Transformer attention — capture global context
         attended_features = self._attention_head(cnn_features)  # [1, proj_dim]
@@ -294,12 +315,21 @@ class HybridForgeryClassifier:
         """
         if not self._initialized:
             raise RuntimeError("Classifier not initialized")
+        if not self._trained_weights_loaded:
+            return {
+                "region_scores": {},
+                "fused_counterfeit_score": 0.5,
+                "fused_genuine_score": 0.5,
+                "verdict": "unavailable",
+                "suspicious_regions": [],
+                "cross_region_attention": False,
+                "model_available": False,
+            }
 
-        region_features = {}
-        region_tensors = []
+        region_inputs = []
         region_names = []
 
-        # Step 1: Extract CNN features for each region
+        # Step 1: preprocess valid regions, then run one batched CNN pass.
         for name, region_img in regions.items():
             if region_img is None or region_img.size == 0:
                 continue
@@ -311,21 +341,26 @@ class HybridForgeryClassifier:
                 else:
                     region_img = cv2.cvtColor(region_img, cv2.COLOR_BGR2RGB)
 
-                tensor = TRANSFORM(region_img).unsqueeze(0).to(self._device)
-                features = self._backbone(tensor)  # [1, 1280]
-                region_tensors.append(features)
+                region_inputs.append(TRANSFORM(region_img))
                 region_names.append(name)
             except Exception as e:
                 logger.warning(f"Failed to extract features for '{name}': {e}")
 
-        if not region_tensors:
+        if not region_inputs:
             return {
                 "region_scores": {},
                 "fused_counterfeit_score": 0.5,
                 "fused_genuine_score": 0.5,
                 "verdict": "error",
                 "suspicious_regions": [],
+                "cross_region_attention": False,
+                "model_available": True,
             }
+
+        batch = torch.stack(region_inputs, dim=0).to(self._device)
+        features = self._backbone(batch)  # [N, 1280, 7, 7]
+        features = features.mean(dim=(2, 3))  # one token per detected region
+        region_tensors = [features[index : index + 1] for index in range(len(region_names))]
 
         # Step 2: Stack all region features and run through Transformer
         # This is the cross-region attention step — the Transformer
@@ -378,6 +413,7 @@ class HybridForgeryClassifier:
             "verdict": overall,
             "suspicious_regions": suspicious,
             "cross_region_attention": True,  # flag that we used cross-region analysis
+            "model_available": True,
         }
 
     @torch.no_grad()
@@ -390,7 +426,8 @@ class HybridForgeryClassifier:
 
     def get_stats(self) -> dict:
         return {
-            "status": "ready" if self._initialized else "not_initialized",
+            "status": "ready" if self._trained_weights_loaded else "weights_required" if self._initialized else "not_initialized",
+            "trained_weights_loaded": self._trained_weights_loaded,
             "architecture": "Hybrid CNN-Transformer (2026 SOTA)",
             "backbone": f"{self._backbone_name} (ImageNet pretrained)",
             "attention": "Multi-head Transformer (8 heads, 2 layers)",

@@ -1,0 +1,68 @@
+{
+  "model": "XGBClassifier",
+  "training_mode": "labelled_out_of_fold",
+  "run_mode": "full",
+  "dataset_path": "D:\\ET AI Hackathon\\backend\\data\\training\\fusion_validation.jsonl",
+  "sample_count": 1382,
+  "feature_names": [
+    "vision_score",
+    "vision_forensic_score",
+    "vision_clip_score",
+    "speech_spoof_score",
+    "nlp_score",
+    "graph_score",
+    "has_vision",
+    "has_speech",
+    "has_nlp",
+    "has_graph",
+    "modality_image",
+    "modality_audio",
+    "modality_text"
+  ],
+  "trained_modality_groups": [
+    "image",
+    "text"
+  ],
+  "supported_modality_groups": [
+    "image"
+  ],
+  "deployment_quality_gate": {
+    "minimum_accuracy": 0.75,
+    "minimum_roc_auc": 0.8
+  },
+  "validation_accuracy": 0.6791907514450867,
+  "validation_f1": 0.6360655737704918,
+  "validation_roc_auc": 0.7225842020850041,
+  "validation_brier_score": 0.21057626392435594,
+  "validation_log_loss": 0.6098349357982737,
+  "deployment_blend_metrics": {
+    "xgboost_weight": 1.0,
+    "base_weight": 0.0,
+    "accuracy": 0.6791907514450867,
+    "f1": 0.6360655737704918,
+    "roc_auc": 0.7225842020850041,
+    "brier_score": 0.21057626392435594,
+    "log_loss": 0.6098349357982737
+  },
+  "base_signal_metrics": {
+    "accuracy": 0.42485549132947975,
+    "f1": 0.27106227106227104,
+    "roc_auc": 0.3066526329858327,
+    "brier_score": 0.5323248242488704
+  },
+  "per_modality_metrics": {
+    "image": {
+      "count": 24,
+      "accuracy": 0.7916666666666666,
+      "f1": 0.7058823529411765,
+      "roc_auc": 0.951048951048951
+    },
+    "text": {
+      "count": 322,
+      "accuracy": 0.6708074534161491,
+      "f1": 0.6319444444444444,
+      "roc_auc": 0.7023841672774971
+    }
+  },
+  "created_at": "2026-07-14T13:46:56.667872+00:00"
+}

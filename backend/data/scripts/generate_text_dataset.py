@@ -113,21 +113,42 @@ VALUES = [
     {"officer": "Senior Officer Iyer", "agency": "Narcotics Bureau", "law": "Customs Act", "bank": "Axis Bank", "doctor": "Sen", "amount": "1 lakh", "fee": "7,500", "minutes": "20", "case": "IR-7812", "date": "October 5"},
 ]
 
+CHANNEL_PREFIXES = [
+    "Phone call transcript: ",
+    "SMS received: ",
+    "WhatsApp message: ",
+    "Voice-note transcript: ",
+]
+
 
 def _render(template: str, idx: int) -> str:
-    return template.format(**VALUES[idx % len(VALUES)])
+    value_idx = idx % len(VALUES)
+    return CHANNEL_PREFIXES[value_idx] + template.format(**VALUES[value_idx])
 
 
 def _samples_from_templates(templates: dict[str, list[str]], label: int, target: int) -> list[dict]:
     samples = []
     categories = list(templates.keys())
+    category_counts = {category: 0 for category in categories}
     idx = 0
     while len(samples) < target:
         category = categories[idx % len(categories)]
         template_list = templates[category]
-        template = template_list[(idx // len(categories)) % len(template_list)]
-        rendered = _render(template, idx)
-        samples.append({"text": rendered, "label": label, "category": category})
+        local_idx = category_counts[category]
+        template_index = local_idx % len(template_list)
+        template = template_list[template_index]
+        value_idx = (local_idx // len(template_list)) % len(VALUES)
+        rendered = _render(template, value_idx)
+        samples.append(
+            {
+                "text": rendered,
+                "label": label,
+                "category": category,
+                "template_group": f"{label}:{category}:{template_index}",
+                "source": "curated_scam_pattern_template",
+            }
+        )
+        category_counts[category] += 1
         idx += 1
     return samples
 
@@ -159,7 +180,10 @@ def save_dataset(total_samples: int = 240) -> list[dict]:
             f.write(json.dumps(sample, ensure_ascii=False) + "\n")
 
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["text", "label", "category"])
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["text", "label", "category", "template_group", "source"],
+        )
         writer.writeheader()
         writer.writerows(samples)
 

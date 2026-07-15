@@ -8,6 +8,7 @@ import {
   Clock3,
   Compass,
   Eye,
+  FileAudio,
   Inbox,
   Mic,
   Network,
@@ -15,7 +16,9 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Square,
   UserRound,
+  Volume2,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -25,6 +28,7 @@ import {
   analyzeMultimodal,
   getDemoTranscript,
   getDemoBenign,
+  getAccessToken,
   analyzeTurnByTurn,
   healthCheck,
   getHistory,
@@ -39,6 +43,7 @@ import {
 } from "./utils/api";
 
 function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfileUpdated }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -79,23 +84,23 @@ function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfi
       <section className="account-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
         <div className="dialog-header">
           <div>
-            <div className="section-header">Secure account</div>
-            <h2>{mode === "login" ? "Log in" : mode === "register" ? "Create account" : "Profile & case history"}</h2>
+            <div className="section-header">{t("secureAccount")}</div>
+            <h2>{mode === "login" ? t("login") : mode === "register" ? t("createAccount") : t("profileHistory")}</h2>
           </div>
-          <button className="input-btn" onClick={onClose} title="Close"><SvgIcon name="close" /></button>
+          <button className="input-btn" onClick={onClose} title={t("close")} aria-label={t("close")}><SvgIcon name="close" /></button>
         </div>
         <form className="account-form" onSubmit={submit}>
-          {mode !== "login" && <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} /></label>}
-          {mode !== "profile" && <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>}
-          {mode !== "profile" && <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></label>}
-          {mode !== "login" && <label>Preferred language<LanguageSelect value={preferredLanguage} onChange={setPreferredLanguage} /></label>}
+          {mode !== "login" && <label>{t("name")}<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} /></label>}
+          {mode !== "profile" && <label>{t("email")}<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>}
+          {mode !== "profile" && <label>{t("password")}<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></label>}
+          {mode !== "login" && <label>{t("preferredLanguage")}<LanguageSelect value={preferredLanguage} onChange={setPreferredLanguage} /></label>}
           {error && <div className="form-error">{error}</div>}
-          <button className="primary-command" type="submit" disabled={busy}>{busy ? "Please wait..." : mode === "profile" ? "Save profile" : mode === "login" ? "Log in" : "Create account"}</button>
+          <button className="primary-command" type="submit" disabled={busy}>{busy ? t("pleaseWait") : mode === "profile" ? t("saveProfile") : mode === "login" ? t("login") : t("createAccount")}</button>
         </form>
         {mode === "profile" && (
           <div className="case-history">
-            <div className="section-header">Case history</div>
-            {history.length === 0 ? <p>No saved cases yet.</p> : history.slice(0, 8).map((item) => (
+            <div className="section-header">{t("caseHistory")}</div>
+            {history.length === 0 ? <p>{t("noCases")}</p> : history.slice(0, 8).map((item) => (
               <div className="history-row" key={item.id}>
                 <span>{item.case_type}</span><strong>{item.risk_level}</strong><time>{new Date(item.created_at).toLocaleString()}</time>
               </div>
@@ -114,6 +119,9 @@ function SvgIcon({ name, className = "svg-icon" }) {
     compass: Compass,
     eye: Eye,
     mic: Mic,
+    audio: FileAudio,
+    stop: Square,
+    listen: Volume2,
     brain: Bot,
     fusion: Network,
     chart: BarChart3,
@@ -240,7 +248,7 @@ function ConfidenceGauge({ value = 0, size = 80 }) {
 /* ═══════════════════════════════════════════════════════════
    SCORE BAR
    ═══════════════════════════════════════════════════════════ */
-function ScoreBar({ label, value, variant = "accent" }) {
+function ScoreBar({ label, value }) {
   return (
     <div className="score-bar">
       <div className="score-bar__header">
@@ -288,22 +296,23 @@ function getCaseMeta(result) {
   return `CASE #${numericSeed.padStart(6, "0")} · ${time}`;
 }
 
-function getStampText(variant, result) {
+function getStampText(variant, result, t) {
   const verdict = String(
     result?.verdict || result?.final_verdict || result?.risk_level || "",
   )
     .replace(/_/g, " ")
     .toUpperCase();
-  if (verdict) return verdict;
-  if (variant === "danger") return "SCAM CONFIRMED";
-  if (variant === "warning") return "INCONCLUSIVE";
-  return "VERIFIED CLEAR";
+  if (verdict) return t(`verdicts.${verdict.toLowerCase().replace(/ /g, "_")}`, { defaultValue: verdict });
+  if (variant === "danger") return t("scamConfirmed");
+  if (variant === "warning") return t("inconclusive");
+  return t("verifiedClear");
 }
 
 /* ═══════════════════════════════════════════════════════════
    AGENT TRACE
    ═══════════════════════════════════════════════════════════ */
 function AgentTrace({ trace = [] }) {
+  const { t } = useTranslation();
   const iconMap = {
     input_detection: { icon: "inbox", cls: "routing" },
     routing: { icon: "compass", cls: "routing" },
@@ -316,7 +325,7 @@ function AgentTrace({ trace = [] }) {
 
   return (
     <div className="agent-trace">
-      <div className="section-header">Agent Execution Trace</div>
+      <div className="section-header">{t("agentTrace")}</div>
       {trace.map((step, i) => {
         const { icon, cls } = iconMap[step.step] || {
           icon: "settings",
@@ -336,7 +345,7 @@ function AgentTrace({ trace = [] }) {
               <SvgIcon name={icon} />
             </div>
             <div className="agent-trace__label">
-              <strong>{step.step?.replace(/_/g, " ")}</strong>
+              <strong>{t(`traceSteps.${step.step}`, { defaultValue: step.step?.replace(/_/g, " ") })}</strong>
               {step.reasoning && (
                 <div
                   style={{
@@ -356,7 +365,7 @@ function AgentTrace({ trace = [] }) {
                     marginTop: 2,
                   }}
                 >
-                  Verdict: {step.verdict}
+                  {t("verdict")}: {t(`verdicts.${step.verdict}`, { defaultValue: step.verdict })}
                 </div>
               )}
             </div>
@@ -382,7 +391,8 @@ function AgentTrace({ trace = [] }) {
 /* ═══════════════════════════════════════════════════════════
    VERDICT CARD
    ═══════════════════════════════════════════════════════════ */
-function VerdictCard({ result }) {
+function VerdictCard({ result, onListen }) {
+  const { t } = useTranslation();
   if (!result) return null;
 
   const confidence = result.confidence || 0;
@@ -396,10 +406,10 @@ function VerdictCard({ result }) {
         : "check";
   const title =
     variant === "danger"
-      ? "HIGH RISK DETECTED"
+      ? t("highRisk")
       : variant === "warning"
-        ? "SUSPICIOUS ACTIVITY"
-        : "APPEARS SAFE";
+        ? t("suspicious")
+        : t("appearsSafe");
 
   const agentScores = result.fusion_details?.per_agent_scores || {};
   const techniques = [];
@@ -414,7 +424,7 @@ function VerdictCard({ result }) {
     <div className={`verdict-card glass-card verdict-card--${variant}`}>
       <div className="case-eyebrow">{getCaseMeta(result)}</div>
       <div className={`verdict-stamp verdict-stamp--${variant}`}>
-        {getStampText(variant, result)}
+        {getStampText(variant, result, t)}
       </div>
       <div className="verdict-card__header">
         <div className="verdict-card__icon">
@@ -423,20 +433,23 @@ function VerdictCard({ result }) {
         <div>
           <div className="verdict-card__title">{title}</div>
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {result.risk_level} risk | {result.processing_time_seconds}s
+            {t(`riskLevels.${result.risk_level}`, { defaultValue: result.risk_level })} {t("risk")} | {result.processing_time_seconds}{t("secondsShort")}
           </div>
         </div>
         <ConfidenceGauge value={confidence} />
       </div>
+      <button className="verdict-listen" type="button" onClick={() => onListen(result)}>
+        <SvgIcon name="listen" /> {t("listenVerdict")}
+      </button>
       <div className="verdict-card__body">
         {/* Per-agent scores */}
         {Object.keys(agentScores).length > 0 && (
           <>
-            <div className="section-header">Per-Agent Scores</div>
+            <div className="section-header">{t("perAgentScores")}</div>
             {Object.entries(agentScores).map(([agent, score]) => (
               <ScoreBar
                 key={agent}
-                label={agent.toUpperCase() + " Agent"}
+                label={`${agent.toUpperCase()} ${t("agent")}`}
                 value={score}
               />
             ))}
@@ -446,7 +459,7 @@ function VerdictCard({ result }) {
         {/* NLP Reasoning */}
         {result.agent_results?.nlp?.reasoning && (
           <div style={{ marginTop: 12 }}>
-            <div className="section-header">AI Reasoning</div>
+            <div className="section-header">{t("aiReasoning")}</div>
             <div
               style={{
                 fontSize: 13,
@@ -462,7 +475,7 @@ function VerdictCard({ result }) {
         {/* Retrieved pattern matches */}
         {result.agent_results?.nlp?.retrieved_pattern_matches?.length > 0 && (
           <div style={{ marginTop: 12 }}>
-            <div className="section-header">Matched Scam Patterns (RAG)</div>
+            <div className="section-header">{t("matchedPatterns")}</div>
             {result.agent_results.nlp.retrieved_pattern_matches
               .slice(0, 2)
               .map((match, i) => (
@@ -488,7 +501,7 @@ function VerdictCard({ result }) {
                     }}
                   >
                     {match.category?.replace(/_/g, " ")} |{" "}
-                    {(match.similarity * 100).toFixed(0)}% match
+                    {(match.similarity * 100).toFixed(0)}% {t("match")}
                   </div>
                   {match.pattern?.slice(0, 150)}...
                 </div>
@@ -499,14 +512,14 @@ function VerdictCard({ result }) {
         {/* Vision attention map */}
         {result.agent_visualizations?.annotated_overlay && (
           <div style={{ marginTop: 12 }}>
-            <div className="section-header">Attention Map (Grad-CAM)</div>
+            <div className="section-header">{t("attentionMap")}</div>
             <div className="attention-map">
               <img
                 src={`data:image/png;base64,${result.agent_visualizations.annotated_overlay}`}
-                alt="Attention map"
+                alt={t("attentionAlt")}
               />
               <div className="attention-map__label">
-                Model attention overlay - red regions are flagged as suspicious
+                {t("attentionHint")}
               </div>
             </div>
           </div>
@@ -515,7 +528,7 @@ function VerdictCard({ result }) {
         {/* Techniques used */}
         {techniques.length > 0 && (
           <div style={{ marginTop: 12 }}>
-            <div className="section-header">AI Techniques Used</div>
+            <div className="section-header">{t("techniquesUsed")}</div>
             <div className="technique-tags">
               {[...new Set(techniques)].map((t, i) => (
                 <span key={i} className="technique-tag">
@@ -534,34 +547,46 @@ function VerdictCard({ result }) {
    SCAM TIMELINE (Confidence Trajectory)
    ═══════════════════════════════════════════════════════════ */
 function ScamTimeline({ trajectory = [] }) {
+  const { t } = useTranslation();
   if (!trajectory.length) return null;
+  const finalConfidence = trajectory[trajectory.length - 1].fused_confidence || 0;
+  const finalLabel = finalConfidence >= 0.6
+    ? t("timelineHigh")
+    : finalConfidence >= 0.3
+      ? t("timelineSuspicious")
+      : t("timelineClear");
 
   return (
     <div style={{ marginTop: 12 }}>
-      <div className="section-header">Confidence Trajectory</div>
+      <div className="section-header">{t("confidenceTrajectory")}</div>
+      <div className="trajectory-summary">
+        <SvgIcon name={finalConfidence >= 0.6 ? "alert" : finalConfidence >= 0.3 ? "caution" : "check"} />
+        <strong>{finalLabel}</strong>
+        <span>{Math.round(finalConfidence * 100)}% {t("finalConfidence")}</span>
+      </div>
       <div className="scam-timeline">
         <div className="scam-timeline__bar">
-          {trajectory.map((t, i) => {
-            const height = Math.max(t.fused_confidence * 100, 5);
-            const color = getSignalColor(t.fused_confidence);
+          {trajectory.map((turnItem, i) => {
+            const height = Math.max(turnItem.fused_confidence * 100, 5);
+            const color = getSignalColor(turnItem.fused_confidence);
             return (
               <div
                 key={i}
                 className="scam-timeline__segment"
                 style={{ height: `${height}%`, background: color }}
-                data-tooltip={`Turn ${t.turn}: ${(t.fused_confidence * 100).toFixed(0)}%`}
-                title={`Turn ${t.turn}: ${t.turn_text}`}
+                data-tooltip={`${t("turn")} ${turnItem.turn}: ${(turnItem.fused_confidence * 100).toFixed(0)}%`}
+                title={`${t("turn")} ${turnItem.turn}: ${turnItem.turn_text}`}
               />
             );
           })}
         </div>
         <div className="scam-timeline__labels">
-          <span>Turn 1</span>
-          <span>Turn {trajectory.length}</span>
+          <span>{t("turn")} 1</span>
+          <span>{t("turn")} {trajectory.length}</span>
         </div>
       </div>
       {/* Turn details */}
-      {trajectory.map((t, i) => (
+      {trajectory.map((turnItem, i) => (
         <div
           key={i}
           style={{
@@ -570,24 +595,24 @@ function ScamTimeline({ trajectory = [] }) {
             borderRadius: 0,
             background: "var(--ink-750)",
             fontSize: 12,
-            borderLeft: `3px solid ${getSignalColor(t.fused_confidence)}`,
+            borderLeft: `3px solid ${getSignalColor(turnItem.fused_confidence)}`,
           }}
         >
-          <span style={{ color: "var(--text-muted)" }}>Turn {t.turn}:</span>{" "}
-          <span style={{ color: "var(--text-primary)" }}>{t.turn_text}</span>
+          <span style={{ color: "var(--text-muted)" }}>{t("turn")} {turnItem.turn}:</span>{" "}
+          <span style={{ color: "var(--text-primary)" }}>{turnItem.turn_text}</span>
           <span
             style={{
               float: "right",
               fontFamily: "var(--font-mono)",
               fontWeight: 600,
               color:
-                t.confidence_delta > 0
+                turnItem.confidence_delta > 0
                   ? "var(--signal-alert)"
                   : "var(--signal-clear)",
             }}
           >
-            {t.confidence_delta > 0 ? "+" : ""}
-            {(t.confidence_delta * 100).toFixed(0)}%
+            {turnItem.confidence_delta > 0 ? "+" : ""}
+            {(turnItem.confidence_delta * 100).toFixed(0)}%
           </span>
         </div>
       ))}
@@ -599,27 +624,23 @@ function ScamTimeline({ trajectory = [] }) {
    WELCOME SCREEN
    ═══════════════════════════════════════════════════════════ */
 function WelcomeScreen({ onDemoScam, onDemoBenign, onDemoImage }) {
+  const { t } = useTranslation();
   return (
     <div className="welcome">
       <div className="welcome__icon">
         <SvgIcon name="shield" />
       </div>
-      <h1 className="welcome__title">Citizen Fraud Shield</h1>
-      <p className="welcome__desc">
-        Every year, thousands are trapped on video calls by fake CBI officers,
-        and counterfeit notes slip past bank counters undetected. Citizen Fraud
-        Shield fuses vision, speech, and language models into one real-time
-        verdict, with every decision explainable, calibrated, and audit-ready.
-      </p>
+      <h1 className="welcome__title">{t("welcomeTitle")}</h1>
+      <p className="welcome__desc">{t("welcomeDesc")}</p>
       <div className="welcome__actions">
         <button className="welcome__action-btn" onClick={onDemoScam}>
-          <SvgIcon name="alert" /> Demo: Scam Call Transcript
+          <SvgIcon name="alert" /> {t("demoScam")}
         </button>
         <button className="welcome__action-btn" onClick={onDemoBenign}>
-          <SvgIcon name="check" /> Demo: Legitimate Call
+          <SvgIcon name="check" /> {t("demoBenign")}
         </button>
         <button className="welcome__action-btn" onClick={onDemoImage}>
-          <SvgIcon name="camera" /> Upload Currency Image
+          <SvgIcon name="camera" /> {t("uploadImage")}
         </button>
       </div>
       <div
@@ -627,7 +648,7 @@ function WelcomeScreen({ onDemoScam, onDemoBenign, onDemoImage }) {
         style={{ marginTop: 8, justifyContent: "center", maxWidth: 500 }}
       >
         {[
-          "Groq GPT-OSS",
+          "Kimi K2.5",
           "Llama 4 Scout",
           "YOLOv8",
           "EfficientNet",
@@ -643,7 +664,7 @@ function WelcomeScreen({ onDemoScam, onDemoBenign, onDemoImage }) {
           "Multi-Role CoT",
           "Calibration",
           "CLIP",
-          "XGBoost Stacking",
+          "Ensemble Fusion",
         ].map((t, i) => (
           <span key={i} className="technique-tag">
             {t}
@@ -658,7 +679,7 @@ function WelcomeScreen({ onDemoScam, onDemoBenign, onDemoImage }) {
    MAIN APP
    ═══════════════════════════════════════════════════════════ */
 export default function App() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
   const [imageFile, setImageFile] = useState(null);
@@ -666,14 +687,18 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [systemStatus, setSystemStatus] = useState("connecting");
   const [activeResult, setActiveResult] = useState(null);
-  const [trajectory, setTrajectory] = useState([]);
+  const [, setTrajectory] = useState([]);
   const [language, setLanguage] = useState(i18n.language || "en");
   const [user, setUser] = useState(null);
   const [dialogMode, setDialogMode] = useState(null);
   const [liveStatus, setLiveStatus] = useState("reconnecting");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const audioInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -688,8 +713,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    getMe().then(setUser).catch(() => setAccessToken(null));
+    if (getAccessToken()) {
+      getMe().then(setUser).catch(() => setAccessToken(null));
+    }
   }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.documentElement.dir = language === "ur" ? "rtl" : "ltr";
+  }, [language]);
 
   useEffect(() => {
     const sessionId = crypto.randomUUID?.() || String(Date.now());
@@ -720,8 +752,8 @@ export default function App() {
     const userMsg =
       inputText.trim() ||
       (imageFile
-        ? `Image file: ${imageFile.name}`
-        : `Audio file: ${audioFile.name}`);
+        ? `${t("imageFile")}: ${imageFile.name}`
+        : `${t("audioFile")}: ${audioFile.name}`);
     addMessage("user", userMsg);
     setIsLoading(true);
     setInputText("");
@@ -733,6 +765,7 @@ export default function App() {
         text: inputText.trim() || undefined,
         image: imageFile || undefined,
         audio: audioFile || undefined,
+        language,
       });
 
       // Remove loading message
@@ -743,7 +776,7 @@ export default function App() {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       addMessage(
         "ai",
-        `Error: ${error.message}. Make sure the backend is running (python main.py)`,
+        `${t("error")}: ${error.message}. ${t("backendRequired")}`,
       );
     } finally {
       setIsLoading(false);
@@ -758,20 +791,20 @@ export default function App() {
       const demo = await getDemoTranscript();
       addMessage(
         "user",
-        "Demo: Analyzing scam call transcript turn-by-turn...",
+        t("demoScamAnalyzing"),
       );
       addMessage("ai", "loading");
 
-      const result = await analyzeTurnByTurn(demo.turns);
+      const result = await analyzeTurnByTurn(demo.turns, language);
 
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       setTrajectory(result.trajectory || []);
       addMessage("ai", "trajectory", result);
-    } catch (error) {
+    } catch {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       addMessage(
         "ai",
-        `Backend not running. Start with: cd backend && python main.py`,
+        t("backendStartHint"),
       );
     } finally {
       setIsLoading(false);
@@ -782,19 +815,19 @@ export default function App() {
     setIsLoading(true);
     try {
       const demo = await getDemoBenign();
-      addMessage("user", "Demo: Analyzing legitimate customer service call...");
+      addMessage("user", t("demoBenignAnalyzing"));
       addMessage("ai", "loading");
 
-      const result = await analyzeTurnByTurn(demo.turns);
+      const result = await analyzeTurnByTurn(demo.turns, language);
 
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       setTrajectory(result.trajectory || []);
       addMessage("ai", "trajectory", result);
-    } catch (error) {
+    } catch {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       addMessage(
         "ai",
-        `Backend not running. Start with: cd backend && python main.py`,
+        t("backendStartHint"),
       );
     } finally {
       setIsLoading(false);
@@ -803,6 +836,58 @@ export default function App() {
 
   const handleDemoImage = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleRecordVoice = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recordedChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordedChunksRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecording(false);
+        const blob = new Blob(recordedChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        setIsTranscribing(true);
+        try {
+          const transcription = await transcribeVoice(blob, language);
+          if (transcription.transcript) setInputText(transcription.transcript);
+        } catch (error) {
+          addMessage("ai", `${t("transcriptionFailed")}: ${error.message}`);
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      addMessage("ai", `${t("microphoneUnavailable")}: ${error.message}`);
+    }
+  };
+
+  const listenToVerdict = (result) => {
+    if (!("speechSynthesis" in window)) {
+      addMessage("ai", t("speechUnsupported"));
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const confidence = Math.round((result.confidence || 0) * 100);
+    const reasoning = result.agent_results?.nlp?.reasoning || t("reviewGuidance");
+    const utterance = new SpeechSynthesisUtterance(
+      `${t(`riskLevels.${result.risk_level}`, { defaultValue: result.risk_level || t("unknown") })} ${t("risk")}, ${confidence} ${t("percentConfidence")}. ${reasoning}`,
+    );
+    utterance.lang = language;
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleKeyDown = (e) => {
@@ -865,11 +950,11 @@ export default function App() {
                         <span
                           style={{ color: "var(--text-muted)", fontSize: 13 }}
                         >
-                          Agents analyzing...
+                          {t("agentsAnalyzing")}
                         </span>
                       </div>
                     ) : msg.content === "result" && msg.data ? (
-                      <VerdictCard result={msg.data} />
+                      <VerdictCard result={msg.data} onListen={listenToVerdict} />
                     ) : msg.content === "trajectory" && msg.data ? (
                       <div>
                         <div
@@ -879,7 +964,7 @@ export default function App() {
                             marginBottom: 8,
                           }}
                         >
-                          Turn-by-Turn Confidence Analysis
+                          {t("turnAnalysis")}
                         </div>
                         <ScamTimeline trajectory={msg.data.trajectory || []} />
                       </div>
@@ -927,22 +1012,33 @@ export default function App() {
               <button
                 className="input-btn input-btn--upload"
                 onClick={() => fileInputRef.current?.click()}
-                title="Upload image"
+                title={t("uploadImage")}
+                aria-label={t("uploadImage")}
               >
                 <SvgIcon name="camera" />
               </button>
               <button
                 className="input-btn input-btn--upload"
                 onClick={() => audioInputRef.current?.click()}
-                title="Upload audio"
+                title={t("uploadAudio")}
+                aria-label={t("uploadAudio")}
               >
-                <SvgIcon name="mic" />
+                <SvgIcon name="audio" />
+              </button>
+              <button
+                className={`input-btn ${isRecording ? "input-btn--recording" : ""}`}
+                onClick={handleRecordVoice}
+                disabled={isTranscribing}
+                title={isRecording ? t("stopRecording") : t("record")}
+                aria-label={isRecording ? t("stopRecording") : t("record")}
+              >
+                <SvgIcon name={isRecording ? "stop" : "mic"} />
               </button>
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Describe a suspicious situation, paste a transcript, or upload a file..."
+                placeholder={isTranscribing ? t("transcribingVoice") : t("inputPlaceholder")}
                 rows={1}
               />
               <button
@@ -951,6 +1047,8 @@ export default function App() {
                 disabled={
                   isLoading || (!inputText.trim() && !imageFile && !audioFile)
                 }
+                title={t("sendForAnalysis")}
+                aria-label={t("sendForAnalysis")}
               >
                 {isLoading ? <SvgIcon name="clock" /> : <SvgIcon name="send" />}
               </button>
@@ -978,11 +1076,11 @@ export default function App() {
             <AgentTrace trace={activeResult.trace || []} />
             {activeResult.agents_invoked?.length > 0 && (
               <div style={{ marginTop: 16 }}>
-                <div className="section-header">Agents Invoked</div>
+                <div className="section-header">{t("agentsInvoked")}</div>
                 <div className="technique-tags">
                   {activeResult.agents_invoked.map((a, i) => (
                     <span key={i} className="technique-tag">
-                      {a} agent
+                      {a} {t("agent")}
                     </span>
                   ))}
                 </div>
@@ -996,7 +1094,7 @@ export default function App() {
                   color: "var(--text-muted)",
                 }}
               >
-                Total processing: {activeResult.processing_time_seconds}s
+                {t("totalProcessing")}: {activeResult.processing_time_seconds}{t("secondsShort")}
               </div>
             )}
           </div>

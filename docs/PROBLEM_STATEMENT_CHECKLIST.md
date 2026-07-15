@@ -3,13 +3,14 @@
 | Requirement | Status | Implementation evidence |
 |---|---|---|
 | Digital arrest scam detection and alerting | Implemented | Turn-by-turn NLP analysis, hybrid RAG, graph signal, calibrated verdict, WebSocket session |
-| Counterfeit currency identification | Implemented prototype | YOLO, EfficientNet, CLIP, ELA, FFT, NPR, Grad-CAM; synthetic training set is not production validation data |
+| Counterfeit currency identification | Implemented research prototype | YOLO, CLIP, ELA, FFT, NPR, Grad-CAM, and a supervised EfficientNet/Transformer trained on 510 deduplicated publisher-labelled research images |
 | Fraud network graph intelligence | Implemented prototype | GAT node risk, community detection, 69-node demonstration network |
 | Geospatial crime pattern intelligence | Implemented demo | Hotspot risk API with optional nearest-location ranking; authorized live feeds remain an integration |
 | Citizen fraud shield, multi-channel | Implemented web/API | Text, image, audio, voice transcription, REST, WebSocket, responsive React UI |
-| Advisory in 12 regional languages | Implemented interface | 12 language choices and browser-supported multilingual speech path; untranslated strings fall back to English |
+| Advisory in 12 regional languages | Implemented and checked | 113 fixed UI strings covered in every language; selected locale is sent to Kimi for explanations/actions, with localized deterministic fallbacks and browser speech |
 | Guided NCRB reporting | Implemented guidance | Official NCRP, 1930, and 112 guidance; no false claim of automatic complaint submission |
-| Agentic multi-source fusion | Implemented | LangGraph StateGraph, evaluator loop, XGBoost meta-learner with weighted fallback, calibration |
+| Agentic multi-source fusion | Implemented with quality gate | LangGraph StateGraph, evaluator loop, calibration, and XGBoost enabled only for validated image signatures; other signatures use weighted fallback |
+| Scalable integration boundary | Implemented optional services | RabbitMQ durable jobs/DLQ, Redis distributed limits, and MCP analyst tools/resources/prompt; PostgreSQL and managed deployment remain future work |
 | Auditability / legal intelligence package | Implemented prototype | Decision trace, model/fusion evidence, case ownership checks, SHA-256 source and export hashes |
 | Working prototype | Verified | Static checks, operational API test, model E2E script, frontend production build |
 | Architecture diagram | Included | `docs/ARCHITECTURE.md` |
@@ -18,7 +19,8 @@
 
 ## Evaluation Caveats
 
-- Current text and currency corpora are generated/synthetic and cannot substantiate real-world accuracy across denominations, print quality, accents, devices, or adversarial conditions.
-- The XGBoost fusion model is smoke-trained on synthetic feature distributions. A production claim requires held-out, independently labeled multimodal cases.
+- The current 240-record text corpus is template-generated and cannot substantiate real-world accuracy across languages, accents, devices, or adversarial conditions. Currency training uses publisher-labelled research data, not RBI- or laboratory-certified specimens.
+- Independent local-classifier evaluation currently has a 16.1% false-positive rate on Chakravyuh-Bench-v0; production use requires broader representative data, threshold/calibration studies, and human review.
+- The XGBoost artifact is trained on 1,382 held-out prediction rows. Its quality gate enables image signatures only; text and audio use weighted fallback because the text meta-model did not meet deployment thresholds.
 - Geospatial records are anonymized demonstration data, not live law-enforcement intelligence.
 - Court admissibility depends on jurisdiction, acquisition procedure, source preservation, authorized custody, and human expert review; a software hash alone does not establish admissibility.

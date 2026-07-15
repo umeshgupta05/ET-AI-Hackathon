@@ -1,13 +1,16 @@
 {
-  "name": "frontend",
+  "name": "digital-public-safety-shield-web",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Citizen-facing multimodal fraud analysis interface",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "i18n:generate": "node scripts/generate-translations.mjs",
+    "i18n:check": "node scripts/check-translations.mjs"
   },
   "dependencies": {
     "i18next": "^26.3.6",

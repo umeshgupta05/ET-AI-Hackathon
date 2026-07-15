@@ -71,11 +71,12 @@ export async function getHistory() {
   return parseOrThrow(response, "History load failed");
 }
 
-export async function analyzeMultimodal({ text, image, audio }) {
+export async function analyzeMultimodal({ text, image, audio, language = "en" }) {
   const formData = new FormData();
   if (text) formData.append("text", text);
   if (image) formData.append("image", image);
   if (audio) formData.append("audio", audio);
+  formData.append("language", language);
 
   const response = await fetch(`${API_BASE}/api/analyze`, {
     method: "POST",
@@ -86,20 +87,20 @@ export async function analyzeMultimodal({ text, image, audio }) {
   return parseOrThrow(response, "Analysis failed");
 }
 
-export async function analyzeText(text) {
+export async function analyzeText(text, language = "en") {
   const response = await fetch(`${API_BASE}/api/analyze/text`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, language }),
   });
   return parseOrThrow(response, "Text analysis failed");
 }
 
-export async function analyzeTurnByTurn(turns) {
+export async function analyzeTurnByTurn(turns, language = "en") {
   const response = await fetch(`${API_BASE}/api/analyze/turns`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ turns }),
+    body: JSON.stringify({ turns, language }),
   });
 
   return parseOrThrow(response, "Turn-by-turn analysis failed");
@@ -115,6 +116,21 @@ export async function transcribeVoice(audio, language = "en") {
     body: formData,
   });
   return parseOrThrow(response, "Voice transcription failed");
+}
+
+export async function getLanguages() {
+  const response = await fetch(`${API_BASE}/api/languages`);
+  return parseOrThrow(response, "Language catalog unavailable");
+}
+
+export async function getGraphAnalysis() {
+  const response = await fetch(`${API_BASE}/api/graph/analyze`);
+  return parseOrThrow(response, "Graph analysis unavailable");
+}
+
+export async function getGraphVisualization() {
+  const response = await fetch(`${API_BASE}/api/graph/visualization`);
+  return parseOrThrow(response, "Graph visualization unavailable");
 }
 
 export async function getDemoTranscript() {
