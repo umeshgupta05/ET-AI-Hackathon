@@ -8,12 +8,20 @@
     "accuracy": 1.0,
     "f1": 1.0,
     "precision": 1.0,
-    "recall": 1.0
+    "recall": 1.0,
+    "false_positive_rate": 0.0
   },
-  "epochs_trained": 10,
+  "epochs_trained": 7,
   "training_mode": "full",
   "split_method": "StratifiedGroupKFold(first fold, n_splits=5)",
   "train_count": 192,
   "validation_count": 48,
-  "created_at": "2026-07-14T13:30:22.997374+00:00"
+  "max_length": 384,
+  "class_weights": {
+    "legitimate": 1.0,
+    "scam": 1.0
+  },
+  "warmup_steps": 18,
+  "total_training_steps": 180,
+  "created_at": "2026-07-16T15:34:01.364661+00:00"
 }

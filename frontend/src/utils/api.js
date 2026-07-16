@@ -173,3 +173,18 @@ export function traceWebSocketUrl(sessionId) {
   const protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${url.host}/ws/session/${sessionId}`;
 }
+
+export async function getThreatFeed() {
+  const response = await fetch(`${API_BASE}/api/intelligence/threat-feed`);
+  return parseOrThrow(response, "Threat feed unavailable");
+}
+
+export async function getCommandCentre() {
+  const response = await fetch(`${API_BASE}/api/intelligence/command-centre`);
+  return parseOrThrow(response, "Command centre unavailable");
+}
+
+export async function getBenchmarks() {
+  const response = await fetch(`${API_BASE}/api/benchmarks`);
+  return parseOrThrow(response, "Benchmarks unavailable");
+}

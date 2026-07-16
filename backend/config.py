@@ -151,7 +151,8 @@ class OrchestratorConfig:
     calibration_method: str = "isotonic"  # "isotonic" or "temperature"
     # Verdict thresholds
     high_risk_threshold: float = 0.75
-    medium_risk_threshold: float = 0.45
+    medium_risk_threshold: float = 0.60
+    needs_review_threshold: float = 0.45
     low_risk_threshold: float = 0.25
 
 

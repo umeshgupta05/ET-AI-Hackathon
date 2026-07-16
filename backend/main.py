@@ -64,6 +64,7 @@ from auth_store import (
 )
 from intelligence import build_evidence_package, geospatial_overview, reporting_guidance
 from localization import normalize_language
+from analytics import get_analytics_tracker
 from broker import broker_status, close_broker, jobs_enabled, publish_job
 from job_store import create_job, fail_job, get_job, init_job_db
 from redis_service import (
@@ -326,6 +327,46 @@ def _persist_if_user(user: Optional[dict], case_type: str, result: dict) -> dict
             )
         )
     return result
+
+
+def _log_to_analytics(result: dict, modality: str = "text") -> None:
+    """Log analysis result to real-time analytics tracker."""
+    try:
+        tracker = get_analytics_tracker()
+
+        # Extract stable pattern categories from the structured NLP output.
+        # The raw LLM prose remains in the case result rather than analytics.
+        scam_types: list[str] = []
+        nlp_result = result.get("agent_results", {}).get("nlp", {})
+        if nlp_result:
+            for match in nlp_result.get("retrieved_pattern_matches", []):
+                stype = match.get("scam_type") or match.get("category", "")
+                if stype and stype not in scam_types:
+                    scam_types.append(stype)
+            for step in nlp_result.get("agent_trace", []):
+                for finding in step.get("result", {}).get("findings", []):
+                    pattern = finding.get("pattern", "")
+                    if pattern and pattern not in scam_types:
+                        scam_types.append(pattern)
+
+        # From fusion details
+        fusion = result.get("fusion_details", {})
+        if not scam_types and fusion:
+            verdict = result.get("verdict", "")
+            if verdict in ("high_risk", "medium_risk", "needs_review"):
+                scam_types.append(verdict)
+
+        tracker.log_analysis(
+            verdict=result.get("verdict", "unknown"),
+            confidence=result.get("confidence", 0.0),
+            risk_level=result.get("risk_level", "unknown"),
+            scam_types=scam_types,
+            modality=modality,
+            agents_invoked=result.get("agents_invoked", []),
+            processing_time=result.get("processing_time_seconds", 0.0),
+        )
+    except Exception as e:
+        logger.warning(f"Analytics logging failed: {e}")
 
 
 @app.post("/api/auth/register")
@@ -661,6 +702,7 @@ async def analyze_multimodal(
             language=normalize_language(language),
         )
         result = _persist_if_user(user, _case_type(text, image_bytes, audio_bytes), result)
+        _log_to_analytics(result, modality=_case_type(text, image_bytes, audio_bytes))
         return JSONResponse(content=result)
 
     except Exception as e:
@@ -681,6 +723,7 @@ async def analyze_text(request: TextAnalysisRequest, user: Optional[dict] = Depe
             language=normalize_language(request.language),
         )
         result = _persist_if_user(user, "text", result)
+        _log_to_analytics(result, modality="text")
         return JSONResponse(content=result)
     except Exception as e:
         logger.error(f"Text analysis failed: {e}", exc_info=True)
@@ -705,6 +748,7 @@ async def analyze_image(
             language=normalize_language(language),
         )
         result = _persist_if_user(user, "image", result)
+        _log_to_analytics(result, modality="image")
         return JSONResponse(content=result)
     except Exception as e:
         logger.error(f"Image analysis failed: {e}", exc_info=True)
@@ -729,6 +773,7 @@ async def analyze_audio(
             language=normalize_language(language),
         )
         result = _persist_if_user(user, "audio", result)
+        _log_to_analytics(result, modality="audio")
         return JSONResponse(content=result)
     except Exception as e:
         logger.error(f"Audio analysis failed: {e}", exc_info=True)
@@ -877,13 +922,13 @@ async def get_demo_transcript():
         "title": "Digital Arrest Scam — Sample Transcript",
         "turns": [
             "Hello, this is Inspector Sharma from CBI Cyber Cell. Am I speaking to the account holder of State Bank account ending 4521?",
-            "Sir, we have detected suspicious transactions from your account linked to a money laundering case. This is a very serious matter under PMLA Act.",
-            "I need you to stay on this video call for the verification process. Do NOT disconnect or contact anyone else — this is a confidential investigation under Section 45 of PMLA.",
-            "Your Aadhaar number has been misused to open 17 fraudulent bank accounts. An arrest warrant has already been issued in your name by the Delhi High Court.",
-            "To avoid immediate arrest, you need to transfer your funds to an RBI safe custody account for asset verification. This is standard procedure. I will share the account details now.",
-            "The amount needs to be transferred within the next 30 minutes or I will have no choice but to dispatch officers to your location for physical arrest.",
+            "Sir, we have detected suspicious transactions from your account linked to a money laundering case under PMLA Act.",
+            "I need you to stay on this video call for verification. Do NOT disconnect or contact anyone else.",
+            "Your Aadhaar has been misused to open 17 fraudulent bank accounts. An arrest warrant has been issued.",
+            "To avoid immediate arrest, transfer your funds to an RBI safe custody account. I will share the details now.",
+            "The amount needs to be transferred within 30 minutes or I will dispatch officers to your location.",
         ],
-        "expected_result": "High confidence scam detection — escalating urgency, authority impersonation, secrecy demands, and financial pressure all match known digital arrest patterns.",
+        "expected_result": "High confidence scam detection with escalating urgency and authority impersonation.",
     }
 
 
@@ -893,13 +938,124 @@ async def get_demo_benign():
     return {
         "title": "Legitimate Customer Service Call — Sample",
         "turns": [
-            "Good afternoon, thank you for calling State Bank customer service. My name is Priya, employee ID 45221. How can I help you today?",
-            "I can see your account details. You mentioned a pending transaction — let me look that up for you.",
-            "I can see the transaction of Rs 5,000 from yesterday. It was a regular UPI transfer. Would you like me to send you a detailed statement?",
-            "If you have any concerns about unauthorized transactions, I'd recommend visiting your nearest branch with your ID for a detailed review. Our branch at MG Road is open until 4 PM.",
+            "Good afternoon, thank you for calling State Bank customer service. My name is Priya, employee ID 45221.",
+            "I can see your account details. You mentioned a pending transaction — let me look that up.",
+            "I can see the transaction of Rs 5,000 from yesterday. It was a regular UPI transfer.",
+            "If you have any concerns, I'd recommend visiting your nearest branch with your ID for a review.",
             "Is there anything else I can help you with today? Thank you for banking with us.",
         ],
-        "expected_result": "Low confidence — legitimate customer service interaction with no scam indicators.",
+        "expected_result": "Low confidence — legitimate customer service interaction.",
+    }
+
+
+# ─── Predictive Threat Intelligence ─────────────────────────────────────
+
+
+@app.get("/api/intelligence/threat-feed")
+async def threat_feed():
+    """Real-time threat intelligence feed — driven by actual system analyses."""
+    tracker = get_analytics_tracker()
+    return tracker.get_live_stats()
+
+
+@app.get("/api/intelligence/command-centre")
+async def command_centre():
+    """Unified command centre data."""
+    geo = geospatial_overview()
+    graph_stats: dict = {}
+    graph_nodes: list[dict] = []
+    if orchestrator and orchestrator._graph_agent:
+        graph_stats = orchestrator._graph_agent.get_stats()
+        graph_nodes = orchestrator._graph_agent.get_graph_visualization_data().get("nodes", [])
+    graph_size = graph_stats.get("graph_size", {})
+    return {
+        "geospatial": geo,
+        "network": {
+            "total_nodes": graph_size.get("nodes", 0),
+            "total_edges": graph_size.get("edges", 0),
+            "high_risk_entities": sum(
+                node.get("label") in {"scammer", "mule"} for node in graph_nodes
+            ),
+        },
+        "system": {
+            "orchestrator": "LangGraph StateGraph (cyclic self-correction)",
+            "agents": ["Vision", "Speech", "NLP", "Graph"],
+            "languages_supported": len(SUPPORTED_LANGUAGES),
+            "uptime_status": "operational" if orchestrator else "initializing",
+        },
+    }
+
+
+@app.get("/api/benchmarks")
+async def get_benchmarks():
+    """Return only metrics recorded by the current local training/evaluation runs."""
+    models_dir = Path(__file__).parent / "data" / "trained_models"
+
+    def load_metadata(relative_path: str) -> dict:
+        try:
+            return json.loads((models_dir / relative_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    text_benchmark = load_metadata("scam_classifier/benchmark_metadata.json")
+    vision_training = load_metadata("forgery_classifier/training_metadata.json")
+    graph_training = load_metadata("fraud_gat/training_metadata.json")
+    fusion_training = load_metadata("xgboost_fusion/training_metadata.json")
+
+    models = []
+    if text_benchmark:
+        action_metrics = text_benchmark.get("operating_policy", {}).get("action_metrics", {})
+        benchmark_metrics = action_metrics or {
+            key: text_benchmark[key]
+            for key in ("precision", "recall", "f1", "accuracy", "roc_auc", "false_positive_rate")
+            if key in text_benchmark
+        }
+        if "roc_auc" in text_benchmark:
+            benchmark_metrics.setdefault("roc_auc", text_benchmark["roc_auc"])
+        models.append({
+            "name": "Scam Text Classifier",
+            "type": "DistilRoBERTa NLI",
+            "metrics": benchmark_metrics,
+            "evaluation_set": f"{text_benchmark.get('benchmark', 'held-out benchmark')} ({text_benchmark.get('sample_count', 0)} samples; test-only)",
+            "limitations": text_benchmark.get("limitations", []),
+        })
+    if vision_training:
+        metrics = vision_training.get("validation_metrics", {})
+        models.append({
+            "name": "Currency Vision Classifier",
+            "type": vision_training.get("architecture", "vision classifier"),
+            "metrics": {key: metrics[key] for key in ("accuracy", "precision", "recall", "f1", "roc_auc") if key in metrics},
+            "evaluation_set": f"Grouped validation ({vision_training.get('validation_count', 0)} of {vision_training.get('dataset_size', 0)} research-labelled images)",
+            "limitations": ["Research labels only; not RBI or forensic certification."],
+        })
+    if graph_training:
+        metrics = graph_training.get("best_metrics", {})
+        models.append({
+            "name": "Fraud Network GAT",
+            "type": graph_training.get("architecture", "Graph Attention Network"),
+            "metrics": {key.removeprefix("val_"): value for key, value in metrics.items() if key.startswith("val_")},
+            "evaluation_set": f"Validation split of {graph_training.get('graph_nodes', 0)}-node demonstration graph",
+            "limitations": ["Demonstration graph; not live law-enforcement intelligence."],
+        })
+    if fusion_training:
+        models.append({
+            "name": "XGBoost Fusion",
+            "type": fusion_training.get("model", "XGBoost"),
+            "metrics": {
+                key.removeprefix("validation_"): value
+                for key, value in fusion_training.items()
+                if key.startswith("validation_")
+            },
+            "evaluation_set": f"Held-out fusion validation ({fusion_training.get('sample_count', 0)} rows)",
+            "limitations": [
+                "Deployment quality gate currently enables this model only for image signatures.",
+            ],
+        })
+
+    return {
+        "models": models,
+        "system_totals": {"total_models": len(models), "modalities": ["text", "image", "audio", "graph"]},
+        "disclosure": "Metrics are loaded from local metadata files and may change after retraining.",
     }
 
 

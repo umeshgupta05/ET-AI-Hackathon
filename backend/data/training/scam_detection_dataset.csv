@@ -119,123 +119,123 @@ Voice-note transcript: I am calling from your school office. Your child has an e
 Voice-note transcript: Your insurance policy is suspended. Verify KYC through this link and confirm OTP.,1,kyc_otp,1:kyc_otp:4,curated_scam_pattern_template
 Voice-note transcript: A courier from Thailand has drugs linked to your Aadhaar. Do not contact family while we investigate.,1,parcel_customs,1:parcel_customs:4,curated_scam_pattern_template
 Voice-note transcript: Complete paid rating tasks today. Deposit a small amount first to activate high-value commissions.,1,job_investment,1:job_investment:4,curated_scam_pattern_template
-Phone call transcript: Thank you for calling State Bank. Your statement is available in the official app. We will never ask for OTP or CVV.,0,bank_service,0:bank_service:0,curated_scam_pattern_template
-Phone call transcript: Your order is out for delivery today. Please keep the delivery code ready when the agent reaches your gate.,0,delivery_service,0:delivery_service:0,curated_scam_pattern_template
-Phone call transcript: Your appointment with Dr. Mehta is confirmed for July 15. Please bring previous reports.,0,health_school,0:health_school:0,curated_scam_pattern_template
-"Phone call transcript: Your electricity bill of Rs 50,000 is due on July 15. Pay using the official portal or authorized counter.",0,utilities,0:utilities:0,curated_scam_pattern_template
-Phone call transcript: Your train ticket PNR CR-4521 is confirmed. Coach and berth details are available in the official message.,0,travel_government,0:travel_government:0,curated_scam_pattern_template
-Phone call transcript: Thank you for visiting our showroom. The quotation has been sent to your registered email.,0,commerce,0:commerce:0,curated_scam_pattern_template
-Phone call transcript: Your cheque book request has been accepted. It will be delivered to your registered address in 5 to 7 working days.,0,bank_service,0:bank_service:1,curated_scam_pattern_template
-Phone call transcript: Your return request has been approved. Refund will be credited to the original payment method.,0,delivery_service,0:delivery_service:1,curated_scam_pattern_template
-Phone call transcript: Parent-teacher meeting is scheduled this Saturday at 11 AM. Please confirm attendance with the school office.,0,health_school,0:health_school:1,curated_scam_pattern_template
-Phone call transcript: Water tank cleaning is planned on Wednesday. Please store water for household use.,0,utilities,0:utilities:1,curated_scam_pattern_template
-Phone call transcript: Passport appointment is scheduled for July 15. Carry original documents to the Seva Kendra.,0,travel_government,0:travel_government:1,curated_scam_pattern_template
-Phone call transcript: Your product warranty is valid for two years. Keep the invoice for service requests.,0,commerce,0:commerce:1,curated_scam_pattern_template
-"Phone call transcript: A debit of Rs 50,000 was made yesterday. If this was not you, please visit the branch or call the official number.",0,bank_service,0:bank_service:2,curated_scam_pattern_template
-Phone call transcript: The courier partner could not reach you. Please reschedule delivery from the official tracking page.,0,delivery_service,0:delivery_service:2,curated_scam_pattern_template
-Phone call transcript: Your lab report is ready for pickup. The clinic will not ask for banking information.,0,health_school,0:health_school:2,curated_scam_pattern_template
-Phone call transcript: Your mobile plan renewal is due tomorrow. Recharge from the official app or store.,0,utilities,0:utilities:2,curated_scam_pattern_template
-Phone call transcript: Property tax receipt has been generated. Download it from the municipal website.,0,travel_government,0:travel_government:2,curated_scam_pattern_template
-Phone call transcript: Your restaurant table booking is confirmed for tonight. No advance transfer is required.,0,commerce,0:commerce:2,curated_scam_pattern_template
-"Phone call transcript: Your credit card bill is due on July 15. Pay through the official app, website, or nearest branch.",0,bank_service,0:bank_service:3,curated_scam_pattern_template
-Phone call transcript: Your package is delayed due to weather. No payment or bank details are required for delivery.,0,delivery_service,0:delivery_service:3,curated_scam_pattern_template
-Phone call transcript: Vaccination camp is scheduled at the community center. Registration is free at the reception desk.,0,health_school,0:health_school:3,curated_scam_pattern_template
-Phone call transcript: Gas booking has been confirmed. Delivery person will carry the printed bill.,0,utilities,0:utilities:3,curated_scam_pattern_template
-Phone call transcript: Your driving license renewal slot is booked. Fee payment is only through the official portal.,0,travel_government,0:travel_government:3,curated_scam_pattern_template
-Phone call transcript: Your gym membership expires this month. Renewal can be done at reception or the official site.,0,commerce,0:commerce:3,curated_scam_pattern_template
-Phone call transcript: Your fixed deposit renewal receipt is available. Please keep the reference number for your records.,0,bank_service,0:bank_service:4,curated_scam_pattern_template
-Phone call transcript: Your grocery order has been packed and will arrive between 2 PM and 4 PM.,0,delivery_service,0:delivery_service:4,curated_scam_pattern_template
-Phone call transcript: Your pharmacy refill is ready. Please collect it with the prescription slip.,0,health_school,0:health_school:4,curated_scam_pattern_template
-Phone call transcript: Broadband maintenance is scheduled tonight from 1 AM to 3 AM. Service may be interrupted.,0,utilities,0:utilities:4,curated_scam_pattern_template
-Phone call transcript: Aadhaar update appointment is confirmed. No OTP sharing is required with any caller.,0,travel_government,0:travel_government:4,curated_scam_pattern_template
-Phone call transcript: Your insurance advisor can schedule an annual policy review next week.,0,commerce,0:commerce:4,curated_scam_pattern_template
-SMS received: Thank you for calling HDFC Bank. Your statement is available in the official app. We will never ask for OTP or CVV.,0,bank_service,0:bank_service:0,curated_scam_pattern_template
-SMS received: Your order is out for delivery today. Please keep the delivery code ready when the agent reaches your gate.,0,delivery_service,0:delivery_service:0,curated_scam_pattern_template
-SMS received: Your appointment with Dr. Patel is confirmed for August 2. Please bring previous reports.,0,health_school,0:health_school:0,curated_scam_pattern_template
-SMS received: Your electricity bill of Rs 2 lakhs is due on August 2. Pay using the official portal or authorized counter.,0,utilities,0:utilities:0,curated_scam_pattern_template
-SMS received: Your train ticket PNR PNR452178 is confirmed. Coach and berth details are available in the official message.,0,travel_government,0:travel_government:0,curated_scam_pattern_template
-SMS received: Thank you for visiting our showroom. The quotation has been sent to your registered email.,0,commerce,0:commerce:0,curated_scam_pattern_template
-SMS received: Your cheque book request has been accepted. It will be delivered to your registered address in 5 to 7 working days.,0,bank_service,0:bank_service:1,curated_scam_pattern_template
-SMS received: Your return request has been approved. Refund will be credited to the original payment method.,0,delivery_service,0:delivery_service:1,curated_scam_pattern_template
-SMS received: Parent-teacher meeting is scheduled this Saturday at 11 AM. Please confirm attendance with the school office.,0,health_school,0:health_school:1,curated_scam_pattern_template
-SMS received: Water tank cleaning is planned on Wednesday. Please store water for household use.,0,utilities,0:utilities:1,curated_scam_pattern_template
-SMS received: Passport appointment is scheduled for August 2. Carry original documents to the Seva Kendra.,0,travel_government,0:travel_government:1,curated_scam_pattern_template
-SMS received: Your product warranty is valid for two years. Keep the invoice for service requests.,0,commerce,0:commerce:1,curated_scam_pattern_template
-"SMS received: A debit of Rs 2 lakhs was made yesterday. If this was not you, please visit the branch or call the official number.",0,bank_service,0:bank_service:2,curated_scam_pattern_template
-SMS received: The courier partner could not reach you. Please reschedule delivery from the official tracking page.,0,delivery_service,0:delivery_service:2,curated_scam_pattern_template
-SMS received: Your lab report is ready for pickup. The clinic will not ask for banking information.,0,health_school,0:health_school:2,curated_scam_pattern_template
-SMS received: Your mobile plan renewal is due tomorrow. Recharge from the official app or store.,0,utilities,0:utilities:2,curated_scam_pattern_template
-SMS received: Property tax receipt has been generated. Download it from the municipal website.,0,travel_government,0:travel_government:2,curated_scam_pattern_template
-SMS received: Your restaurant table booking is confirmed for tonight. No advance transfer is required.,0,commerce,0:commerce:2,curated_scam_pattern_template
-"SMS received: Your credit card bill is due on August 2. Pay through the official app, website, or nearest branch.",0,bank_service,0:bank_service:3,curated_scam_pattern_template
-SMS received: Your package is delayed due to weather. No payment or bank details are required for delivery.,0,delivery_service,0:delivery_service:3,curated_scam_pattern_template
-SMS received: Vaccination camp is scheduled at the community center. Registration is free at the reception desk.,0,health_school,0:health_school:3,curated_scam_pattern_template
-SMS received: Gas booking has been confirmed. Delivery person will carry the printed bill.,0,utilities,0:utilities:3,curated_scam_pattern_template
-SMS received: Your driving license renewal slot is booked. Fee payment is only through the official portal.,0,travel_government,0:travel_government:3,curated_scam_pattern_template
-SMS received: Your gym membership expires this month. Renewal can be done at reception or the official site.,0,commerce,0:commerce:3,curated_scam_pattern_template
-SMS received: Your fixed deposit renewal receipt is available. Please keep the reference number for your records.,0,bank_service,0:bank_service:4,curated_scam_pattern_template
-SMS received: Your grocery order has been packed and will arrive between 2 PM and 4 PM.,0,delivery_service,0:delivery_service:4,curated_scam_pattern_template
-SMS received: Your pharmacy refill is ready. Please collect it with the prescription slip.,0,health_school,0:health_school:4,curated_scam_pattern_template
-SMS received: Broadband maintenance is scheduled tonight from 1 AM to 3 AM. Service may be interrupted.,0,utilities,0:utilities:4,curated_scam_pattern_template
-SMS received: Aadhaar update appointment is confirmed. No OTP sharing is required with any caller.,0,travel_government,0:travel_government:4,curated_scam_pattern_template
-SMS received: Your insurance advisor can schedule an annual policy review next week.,0,commerce,0:commerce:4,curated_scam_pattern_template
-WhatsApp message: Thank you for calling ICICI Bank. Your statement is available in the official app. We will never ask for OTP or CVV.,0,bank_service,0:bank_service:0,curated_scam_pattern_template
-WhatsApp message: Your order is out for delivery today. Please keep the delivery code ready when the agent reaches your gate.,0,delivery_service,0:delivery_service:0,curated_scam_pattern_template
-WhatsApp message: Your appointment with Dr. Rao is confirmed for September 10. Please bring previous reports.,0,health_school,0:health_school:0,curated_scam_pattern_template
-"WhatsApp message: Your electricity bill of Rs 75,000 is due on September 10. Pay using the official portal or authorized counter.",0,utilities,0:utilities:0,curated_scam_pattern_template
-WhatsApp message: Your train ticket PNR DL-9081 is confirmed. Coach and berth details are available in the official message.,0,travel_government,0:travel_government:0,curated_scam_pattern_template
-WhatsApp message: Thank you for visiting our showroom. The quotation has been sent to your registered email.,0,commerce,0:commerce:0,curated_scam_pattern_template
-WhatsApp message: Your cheque book request has been accepted. It will be delivered to your registered address in 5 to 7 working days.,0,bank_service,0:bank_service:1,curated_scam_pattern_template
-WhatsApp message: Your return request has been approved. Refund will be credited to the original payment method.,0,delivery_service,0:delivery_service:1,curated_scam_pattern_template
-WhatsApp message: Parent-teacher meeting is scheduled this Saturday at 11 AM. Please confirm attendance with the school office.,0,health_school,0:health_school:1,curated_scam_pattern_template
-WhatsApp message: Water tank cleaning is planned on Wednesday. Please store water for household use.,0,utilities,0:utilities:1,curated_scam_pattern_template
-WhatsApp message: Passport appointment is scheduled for September 10. Carry original documents to the Seva Kendra.,0,travel_government,0:travel_government:1,curated_scam_pattern_template
-WhatsApp message: Your product warranty is valid for two years. Keep the invoice for service requests.,0,commerce,0:commerce:1,curated_scam_pattern_template
-"WhatsApp message: A debit of Rs 75,000 was made yesterday. If this was not you, please visit the branch or call the official number.",0,bank_service,0:bank_service:2,curated_scam_pattern_template
-WhatsApp message: The courier partner could not reach you. Please reschedule delivery from the official tracking page.,0,delivery_service,0:delivery_service:2,curated_scam_pattern_template
-WhatsApp message: Your lab report is ready for pickup. The clinic will not ask for banking information.,0,health_school,0:health_school:2,curated_scam_pattern_template
-WhatsApp message: Your mobile plan renewal is due tomorrow. Recharge from the official app or store.,0,utilities,0:utilities:2,curated_scam_pattern_template
-WhatsApp message: Property tax receipt has been generated. Download it from the municipal website.,0,travel_government,0:travel_government:2,curated_scam_pattern_template
-WhatsApp message: Your restaurant table booking is confirmed for tonight. No advance transfer is required.,0,commerce,0:commerce:2,curated_scam_pattern_template
-"WhatsApp message: Your credit card bill is due on September 10. Pay through the official app, website, or nearest branch.",0,bank_service,0:bank_service:3,curated_scam_pattern_template
-WhatsApp message: Your package is delayed due to weather. No payment or bank details are required for delivery.,0,delivery_service,0:delivery_service:3,curated_scam_pattern_template
-WhatsApp message: Vaccination camp is scheduled at the community center. Registration is free at the reception desk.,0,health_school,0:health_school:3,curated_scam_pattern_template
-WhatsApp message: Gas booking has been confirmed. Delivery person will carry the printed bill.,0,utilities,0:utilities:3,curated_scam_pattern_template
-WhatsApp message: Your driving license renewal slot is booked. Fee payment is only through the official portal.,0,travel_government,0:travel_government:3,curated_scam_pattern_template
-WhatsApp message: Your gym membership expires this month. Renewal can be done at reception or the official site.,0,commerce,0:commerce:3,curated_scam_pattern_template
-WhatsApp message: Your fixed deposit renewal receipt is available. Please keep the reference number for your records.,0,bank_service,0:bank_service:4,curated_scam_pattern_template
-WhatsApp message: Your grocery order has been packed and will arrive between 2 PM and 4 PM.,0,delivery_service,0:delivery_service:4,curated_scam_pattern_template
-WhatsApp message: Your pharmacy refill is ready. Please collect it with the prescription slip.,0,health_school,0:health_school:4,curated_scam_pattern_template
-WhatsApp message: Broadband maintenance is scheduled tonight from 1 AM to 3 AM. Service may be interrupted.,0,utilities,0:utilities:4,curated_scam_pattern_template
-WhatsApp message: Aadhaar update appointment is confirmed. No OTP sharing is required with any caller.,0,travel_government,0:travel_government:4,curated_scam_pattern_template
-WhatsApp message: Your insurance advisor can schedule an annual policy review next week.,0,commerce,0:commerce:4,curated_scam_pattern_template
-Voice-note transcript: Thank you for calling Axis Bank. Your statement is available in the official app. We will never ask for OTP or CVV.,0,bank_service,0:bank_service:0,curated_scam_pattern_template
-Voice-note transcript: Your order is out for delivery today. Please keep the delivery code ready when the agent reaches your gate.,0,delivery_service,0:delivery_service:0,curated_scam_pattern_template
-Voice-note transcript: Your appointment with Dr. Sen is confirmed for October 5. Please bring previous reports.,0,health_school,0:health_school:0,curated_scam_pattern_template
-Voice-note transcript: Your electricity bill of Rs 1 lakh is due on October 5. Pay using the official portal or authorized counter.,0,utilities,0:utilities:0,curated_scam_pattern_template
-Voice-note transcript: Your train ticket PNR IR-7812 is confirmed. Coach and berth details are available in the official message.,0,travel_government,0:travel_government:0,curated_scam_pattern_template
-Voice-note transcript: Thank you for visiting our showroom. The quotation has been sent to your registered email.,0,commerce,0:commerce:0,curated_scam_pattern_template
-Voice-note transcript: Your cheque book request has been accepted. It will be delivered to your registered address in 5 to 7 working days.,0,bank_service,0:bank_service:1,curated_scam_pattern_template
-Voice-note transcript: Your return request has been approved. Refund will be credited to the original payment method.,0,delivery_service,0:delivery_service:1,curated_scam_pattern_template
-Voice-note transcript: Parent-teacher meeting is scheduled this Saturday at 11 AM. Please confirm attendance with the school office.,0,health_school,0:health_school:1,curated_scam_pattern_template
-Voice-note transcript: Water tank cleaning is planned on Wednesday. Please store water for household use.,0,utilities,0:utilities:1,curated_scam_pattern_template
-Voice-note transcript: Passport appointment is scheduled for October 5. Carry original documents to the Seva Kendra.,0,travel_government,0:travel_government:1,curated_scam_pattern_template
-Voice-note transcript: Your product warranty is valid for two years. Keep the invoice for service requests.,0,commerce,0:commerce:1,curated_scam_pattern_template
-"Voice-note transcript: A debit of Rs 1 lakh was made yesterday. If this was not you, please visit the branch or call the official number.",0,bank_service,0:bank_service:2,curated_scam_pattern_template
-Voice-note transcript: The courier partner could not reach you. Please reschedule delivery from the official tracking page.,0,delivery_service,0:delivery_service:2,curated_scam_pattern_template
-Voice-note transcript: Your lab report is ready for pickup. The clinic will not ask for banking information.,0,health_school,0:health_school:2,curated_scam_pattern_template
-Voice-note transcript: Your mobile plan renewal is due tomorrow. Recharge from the official app or store.,0,utilities,0:utilities:2,curated_scam_pattern_template
-Voice-note transcript: Property tax receipt has been generated. Download it from the municipal website.,0,travel_government,0:travel_government:2,curated_scam_pattern_template
-Voice-note transcript: Your restaurant table booking is confirmed for tonight. No advance transfer is required.,0,commerce,0:commerce:2,curated_scam_pattern_template
-"Voice-note transcript: Your credit card bill is due on October 5. Pay through the official app, website, or nearest branch.",0,bank_service,0:bank_service:3,curated_scam_pattern_template
-Voice-note transcript: Your package is delayed due to weather. No payment or bank details are required for delivery.,0,delivery_service,0:delivery_service:3,curated_scam_pattern_template
-Voice-note transcript: Vaccination camp is scheduled at the community center. Registration is free at the reception desk.,0,health_school,0:health_school:3,curated_scam_pattern_template
-Voice-note transcript: Gas booking has been confirmed. Delivery person will carry the printed bill.,0,utilities,0:utilities:3,curated_scam_pattern_template
-Voice-note transcript: Your driving license renewal slot is booked. Fee payment is only through the official portal.,0,travel_government,0:travel_government:3,curated_scam_pattern_template
-Voice-note transcript: Your gym membership expires this month. Renewal can be done at reception or the official site.,0,commerce,0:commerce:3,curated_scam_pattern_template
-Voice-note transcript: Your fixed deposit renewal receipt is available. Please keep the reference number for your records.,0,bank_service,0:bank_service:4,curated_scam_pattern_template
-Voice-note transcript: Your grocery order has been packed and will arrive between 2 PM and 4 PM.,0,delivery_service,0:delivery_service:4,curated_scam_pattern_template
-Voice-note transcript: Your pharmacy refill is ready. Please collect it with the prescription slip.,0,health_school,0:health_school:4,curated_scam_pattern_template
-Voice-note transcript: Broadband maintenance is scheduled tonight from 1 AM to 3 AM. Service may be interrupted.,0,utilities,0:utilities:4,curated_scam_pattern_template
-Voice-note transcript: Aadhaar update appointment is confirmed. No OTP sharing is required with any caller.,0,travel_government,0:travel_government:4,curated_scam_pattern_template
-Voice-note transcript: Your insurance advisor can schedule an annual policy review next week.,0,commerce,0:commerce:4,curated_scam_pattern_template
+Phone call transcript: Thank you for calling State Bank. Your statement is available in the official app. We will never ask for OTP or CVV.,0,bank_service,0:bank_service:0,curated_legitimate_template
+Phone call transcript: Your order is out for delivery today. Please keep the delivery code ready when the agent reaches your gate.,0,delivery_service,0:delivery_service:0,curated_legitimate_template
+Phone call transcript: Your appointment with Dr. Mehta is confirmed for July 15. Please bring previous reports.,0,health_school,0:health_school:0,curated_legitimate_template
+"Phone call transcript: Your electricity bill of Rs 50,000 is due on July 15. Pay using the official portal or authorized counter.",0,utilities,0:utilities:0,curated_legitimate_template
+Phone call transcript: Your train ticket PNR CR-4521 is confirmed. Coach and berth details are available in the official message.,0,travel_government,0:travel_government:0,curated_legitimate_template
+Phone call transcript: Thank you for visiting our showroom. The quotation has been sent to your registered email.,0,commerce,0:commerce:0,curated_legitimate_template
+Phone call transcript: Your cheque book request has been accepted. It will be delivered to your registered address in 5 to 7 working days.,0,bank_service,0:bank_service:1,curated_legitimate_template
+Phone call transcript: Your return request has been approved. Refund will be credited to the original payment method.,0,delivery_service,0:delivery_service:1,curated_legitimate_template
+Phone call transcript: Parent-teacher meeting is scheduled this Saturday at 11 AM. Please confirm attendance with the school office.,0,health_school,0:health_school:1,curated_legitimate_template
+Phone call transcript: Water tank cleaning is planned on Wednesday. Please store water for household use.,0,utilities,0:utilities:1,curated_legitimate_template
+Phone call transcript: Passport appointment is scheduled for July 15. Carry original documents to the Seva Kendra.,0,travel_government,0:travel_government:1,curated_legitimate_template
+Phone call transcript: Your product warranty is valid for two years. Keep the invoice for service requests.,0,commerce,0:commerce:1,curated_legitimate_template
+"Phone call transcript: A debit of Rs 50,000 was made yesterday. If this was not you, please visit the branch or call the official number.",0,bank_service,0:bank_service:2,curated_legitimate_template
+Phone call transcript: The courier partner could not reach you. Please reschedule delivery from the official tracking page.,0,delivery_service,0:delivery_service:2,curated_legitimate_template
+Phone call transcript: Your lab report is ready for pickup. The clinic will not ask for banking information.,0,health_school,0:health_school:2,curated_legitimate_template
+Phone call transcript: Your mobile plan renewal is due tomorrow. Recharge from the official app or store.,0,utilities,0:utilities:2,curated_legitimate_template
+Phone call transcript: Property tax receipt has been generated. Download it from the municipal website.,0,travel_government,0:travel_government:2,curated_legitimate_template
+Phone call transcript: Your restaurant table booking is confirmed for tonight. No advance transfer is required.,0,commerce,0:commerce:2,curated_legitimate_template
+"Phone call transcript: Your credit card bill is due on July 15. Pay through the official app, website, or nearest branch.",0,bank_service,0:bank_service:3,curated_legitimate_template
+Phone call transcript: Your package is delayed due to weather. No payment or bank details are required for delivery.,0,delivery_service,0:delivery_service:3,curated_legitimate_template
+Phone call transcript: Vaccination camp is scheduled at the community center. Registration is free at the reception desk.,0,health_school,0:health_school:3,curated_legitimate_template
+Phone call transcript: Gas booking has been confirmed. Delivery person will carry the printed bill.,0,utilities,0:utilities:3,curated_legitimate_template
+Phone call transcript: Your driving license renewal slot is booked. Fee payment is only through the official portal.,0,travel_government,0:travel_government:3,curated_legitimate_template
+Phone call transcript: Your gym membership expires this month. Renewal can be done at reception or the official site.,0,commerce,0:commerce:3,curated_legitimate_template
+Phone call transcript: Your fixed deposit renewal receipt is available. Please keep the reference number for your records.,0,bank_service,0:bank_service:4,curated_legitimate_template
+Phone call transcript: Your grocery order has been packed and will arrive between 2 PM and 4 PM.,0,delivery_service,0:delivery_service:4,curated_legitimate_template
+Phone call transcript: Your pharmacy refill is ready. Please collect it with the prescription slip.,0,health_school,0:health_school:4,curated_legitimate_template
+Phone call transcript: Broadband maintenance is scheduled tonight from 1 AM to 3 AM. Service may be interrupted.,0,utilities,0:utilities:4,curated_legitimate_template
+Phone call transcript: Aadhaar update appointment is confirmed. No OTP sharing is required with any caller.,0,travel_government,0:travel_government:4,curated_legitimate_template
+Phone call transcript: Your insurance advisor can schedule an annual policy review next week.,0,commerce,0:commerce:4,curated_legitimate_template
+SMS received: Thank you for calling HDFC Bank. Your statement is available in the official app. We will never ask for OTP or CVV.,0,bank_service,0:bank_service:0,curated_legitimate_template
+SMS received: Your order is out for delivery today. Please keep the delivery code ready when the agent reaches your gate.,0,delivery_service,0:delivery_service:0,curated_legitimate_template
+SMS received: Your appointment with Dr. Patel is confirmed for August 2. Please bring previous reports.,0,health_school,0:health_school:0,curated_legitimate_template
+SMS received: Your electricity bill of Rs 2 lakhs is due on August 2. Pay using the official portal or authorized counter.,0,utilities,0:utilities:0,curated_legitimate_template
+SMS received: Your train ticket PNR PNR452178 is confirmed. Coach and berth details are available in the official message.,0,travel_government,0:travel_government:0,curated_legitimate_template
+SMS received: Thank you for visiting our showroom. The quotation has been sent to your registered email.,0,commerce,0:commerce:0,curated_legitimate_template
+SMS received: Your cheque book request has been accepted. It will be delivered to your registered address in 5 to 7 working days.,0,bank_service,0:bank_service:1,curated_legitimate_template
+SMS received: Your return request has been approved. Refund will be credited to the original payment method.,0,delivery_service,0:delivery_service:1,curated_legitimate_template
+SMS received: Parent-teacher meeting is scheduled this Saturday at 11 AM. Please confirm attendance with the school office.,0,health_school,0:health_school:1,curated_legitimate_template
+SMS received: Water tank cleaning is planned on Wednesday. Please store water for household use.,0,utilities,0:utilities:1,curated_legitimate_template
+SMS received: Passport appointment is scheduled for August 2. Carry original documents to the Seva Kendra.,0,travel_government,0:travel_government:1,curated_legitimate_template
+SMS received: Your product warranty is valid for two years. Keep the invoice for service requests.,0,commerce,0:commerce:1,curated_legitimate_template
+"SMS received: A debit of Rs 2 lakhs was made yesterday. If this was not you, please visit the branch or call the official number.",0,bank_service,0:bank_service:2,curated_legitimate_template
+SMS received: The courier partner could not reach you. Please reschedule delivery from the official tracking page.,0,delivery_service,0:delivery_service:2,curated_legitimate_template
+SMS received: Your lab report is ready for pickup. The clinic will not ask for banking information.,0,health_school,0:health_school:2,curated_legitimate_template
+SMS received: Your mobile plan renewal is due tomorrow. Recharge from the official app or store.,0,utilities,0:utilities:2,curated_legitimate_template
+SMS received: Property tax receipt has been generated. Download it from the municipal website.,0,travel_government,0:travel_government:2,curated_legitimate_template
+SMS received: Your restaurant table booking is confirmed for tonight. No advance transfer is required.,0,commerce,0:commerce:2,curated_legitimate_template
+"SMS received: Your credit card bill is due on August 2. Pay through the official app, website, or nearest branch.",0,bank_service,0:bank_service:3,curated_legitimate_template
+SMS received: Your package is delayed due to weather. No payment or bank details are required for delivery.,0,delivery_service,0:delivery_service:3,curated_legitimate_template
+SMS received: Vaccination camp is scheduled at the community center. Registration is free at the reception desk.,0,health_school,0:health_school:3,curated_legitimate_template
+SMS received: Gas booking has been confirmed. Delivery person will carry the printed bill.,0,utilities,0:utilities:3,curated_legitimate_template
+SMS received: Your driving license renewal slot is booked. Fee payment is only through the official portal.,0,travel_government,0:travel_government:3,curated_legitimate_template
+SMS received: Your gym membership expires this month. Renewal can be done at reception or the official site.,0,commerce,0:commerce:3,curated_legitimate_template
+SMS received: Your fixed deposit renewal receipt is available. Please keep the reference number for your records.,0,bank_service,0:bank_service:4,curated_legitimate_template
+SMS received: Your grocery order has been packed and will arrive between 2 PM and 4 PM.,0,delivery_service,0:delivery_service:4,curated_legitimate_template
+SMS received: Your pharmacy refill is ready. Please collect it with the prescription slip.,0,health_school,0:health_school:4,curated_legitimate_template
+SMS received: Broadband maintenance is scheduled tonight from 1 AM to 3 AM. Service may be interrupted.,0,utilities,0:utilities:4,curated_legitimate_template
+SMS received: Aadhaar update appointment is confirmed. No OTP sharing is required with any caller.,0,travel_government,0:travel_government:4,curated_legitimate_template
+SMS received: Your insurance advisor can schedule an annual policy review next week.,0,commerce,0:commerce:4,curated_legitimate_template
+WhatsApp message: Thank you for calling ICICI Bank. Your statement is available in the official app. We will never ask for OTP or CVV.,0,bank_service,0:bank_service:0,curated_legitimate_template
+WhatsApp message: Your order is out for delivery today. Please keep the delivery code ready when the agent reaches your gate.,0,delivery_service,0:delivery_service:0,curated_legitimate_template
+WhatsApp message: Your appointment with Dr. Rao is confirmed for September 10. Please bring previous reports.,0,health_school,0:health_school:0,curated_legitimate_template
+"WhatsApp message: Your electricity bill of Rs 75,000 is due on September 10. Pay using the official portal or authorized counter.",0,utilities,0:utilities:0,curated_legitimate_template
+WhatsApp message: Your train ticket PNR DL-9081 is confirmed. Coach and berth details are available in the official message.,0,travel_government,0:travel_government:0,curated_legitimate_template
+WhatsApp message: Thank you for visiting our showroom. The quotation has been sent to your registered email.,0,commerce,0:commerce:0,curated_legitimate_template
+WhatsApp message: Your cheque book request has been accepted. It will be delivered to your registered address in 5 to 7 working days.,0,bank_service,0:bank_service:1,curated_legitimate_template
+WhatsApp message: Your return request has been approved. Refund will be credited to the original payment method.,0,delivery_service,0:delivery_service:1,curated_legitimate_template
+WhatsApp message: Parent-teacher meeting is scheduled this Saturday at 11 AM. Please confirm attendance with the school office.,0,health_school,0:health_school:1,curated_legitimate_template
+WhatsApp message: Water tank cleaning is planned on Wednesday. Please store water for household use.,0,utilities,0:utilities:1,curated_legitimate_template
+WhatsApp message: Passport appointment is scheduled for September 10. Carry original documents to the Seva Kendra.,0,travel_government,0:travel_government:1,curated_legitimate_template
+WhatsApp message: Your product warranty is valid for two years. Keep the invoice for service requests.,0,commerce,0:commerce:1,curated_legitimate_template
+"WhatsApp message: A debit of Rs 75,000 was made yesterday. If this was not you, please visit the branch or call the official number.",0,bank_service,0:bank_service:2,curated_legitimate_template
+WhatsApp message: The courier partner could not reach you. Please reschedule delivery from the official tracking page.,0,delivery_service,0:delivery_service:2,curated_legitimate_template
+WhatsApp message: Your lab report is ready for pickup. The clinic will not ask for banking information.,0,health_school,0:health_school:2,curated_legitimate_template
+WhatsApp message: Your mobile plan renewal is due tomorrow. Recharge from the official app or store.,0,utilities,0:utilities:2,curated_legitimate_template
+WhatsApp message: Property tax receipt has been generated. Download it from the municipal website.,0,travel_government,0:travel_government:2,curated_legitimate_template
+WhatsApp message: Your restaurant table booking is confirmed for tonight. No advance transfer is required.,0,commerce,0:commerce:2,curated_legitimate_template
+"WhatsApp message: Your credit card bill is due on September 10. Pay through the official app, website, or nearest branch.",0,bank_service,0:bank_service:3,curated_legitimate_template
+WhatsApp message: Your package is delayed due to weather. No payment or bank details are required for delivery.,0,delivery_service,0:delivery_service:3,curated_legitimate_template
+WhatsApp message: Vaccination camp is scheduled at the community center. Registration is free at the reception desk.,0,health_school,0:health_school:3,curated_legitimate_template
+WhatsApp message: Gas booking has been confirmed. Delivery person will carry the printed bill.,0,utilities,0:utilities:3,curated_legitimate_template
+WhatsApp message: Your driving license renewal slot is booked. Fee payment is only through the official portal.,0,travel_government,0:travel_government:3,curated_legitimate_template
+WhatsApp message: Your gym membership expires this month. Renewal can be done at reception or the official site.,0,commerce,0:commerce:3,curated_legitimate_template
+WhatsApp message: Your fixed deposit renewal receipt is available. Please keep the reference number for your records.,0,bank_service,0:bank_service:4,curated_legitimate_template
+WhatsApp message: Your grocery order has been packed and will arrive between 2 PM and 4 PM.,0,delivery_service,0:delivery_service:4,curated_legitimate_template
+WhatsApp message: Your pharmacy refill is ready. Please collect it with the prescription slip.,0,health_school,0:health_school:4,curated_legitimate_template
+WhatsApp message: Broadband maintenance is scheduled tonight from 1 AM to 3 AM. Service may be interrupted.,0,utilities,0:utilities:4,curated_legitimate_template
+WhatsApp message: Aadhaar update appointment is confirmed. No OTP sharing is required with any caller.,0,travel_government,0:travel_government:4,curated_legitimate_template
+WhatsApp message: Your insurance advisor can schedule an annual policy review next week.,0,commerce,0:commerce:4,curated_legitimate_template
+Voice-note transcript: Thank you for calling Axis Bank. Your statement is available in the official app. We will never ask for OTP or CVV.,0,bank_service,0:bank_service:0,curated_legitimate_template
+Voice-note transcript: Your order is out for delivery today. Please keep the delivery code ready when the agent reaches your gate.,0,delivery_service,0:delivery_service:0,curated_legitimate_template
+Voice-note transcript: Your appointment with Dr. Sen is confirmed for October 5. Please bring previous reports.,0,health_school,0:health_school:0,curated_legitimate_template
+Voice-note transcript: Your electricity bill of Rs 1 lakh is due on October 5. Pay using the official portal or authorized counter.,0,utilities,0:utilities:0,curated_legitimate_template
+Voice-note transcript: Your train ticket PNR IR-7812 is confirmed. Coach and berth details are available in the official message.,0,travel_government,0:travel_government:0,curated_legitimate_template
+Voice-note transcript: Thank you for visiting our showroom. The quotation has been sent to your registered email.,0,commerce,0:commerce:0,curated_legitimate_template
+Voice-note transcript: Your cheque book request has been accepted. It will be delivered to your registered address in 5 to 7 working days.,0,bank_service,0:bank_service:1,curated_legitimate_template
+Voice-note transcript: Your return request has been approved. Refund will be credited to the original payment method.,0,delivery_service,0:delivery_service:1,curated_legitimate_template
+Voice-note transcript: Parent-teacher meeting is scheduled this Saturday at 11 AM. Please confirm attendance with the school office.,0,health_school,0:health_school:1,curated_legitimate_template
+Voice-note transcript: Water tank cleaning is planned on Wednesday. Please store water for household use.,0,utilities,0:utilities:1,curated_legitimate_template
+Voice-note transcript: Passport appointment is scheduled for October 5. Carry original documents to the Seva Kendra.,0,travel_government,0:travel_government:1,curated_legitimate_template
+Voice-note transcript: Your product warranty is valid for two years. Keep the invoice for service requests.,0,commerce,0:commerce:1,curated_legitimate_template
+"Voice-note transcript: A debit of Rs 1 lakh was made yesterday. If this was not you, please visit the branch or call the official number.",0,bank_service,0:bank_service:2,curated_legitimate_template
+Voice-note transcript: The courier partner could not reach you. Please reschedule delivery from the official tracking page.,0,delivery_service,0:delivery_service:2,curated_legitimate_template
+Voice-note transcript: Your lab report is ready for pickup. The clinic will not ask for banking information.,0,health_school,0:health_school:2,curated_legitimate_template
+Voice-note transcript: Your mobile plan renewal is due tomorrow. Recharge from the official app or store.,0,utilities,0:utilities:2,curated_legitimate_template
+Voice-note transcript: Property tax receipt has been generated. Download it from the municipal website.,0,travel_government,0:travel_government:2,curated_legitimate_template
+Voice-note transcript: Your restaurant table booking is confirmed for tonight. No advance transfer is required.,0,commerce,0:commerce:2,curated_legitimate_template
+"Voice-note transcript: Your credit card bill is due on October 5. Pay through the official app, website, or nearest branch.",0,bank_service,0:bank_service:3,curated_legitimate_template
+Voice-note transcript: Your package is delayed due to weather. No payment or bank details are required for delivery.,0,delivery_service,0:delivery_service:3,curated_legitimate_template
+Voice-note transcript: Vaccination camp is scheduled at the community center. Registration is free at the reception desk.,0,health_school,0:health_school:3,curated_legitimate_template
+Voice-note transcript: Gas booking has been confirmed. Delivery person will carry the printed bill.,0,utilities,0:utilities:3,curated_legitimate_template
+Voice-note transcript: Your driving license renewal slot is booked. Fee payment is only through the official portal.,0,travel_government,0:travel_government:3,curated_legitimate_template
+Voice-note transcript: Your gym membership expires this month. Renewal can be done at reception or the official site.,0,commerce,0:commerce:3,curated_legitimate_template
+Voice-note transcript: Your fixed deposit renewal receipt is available. Please keep the reference number for your records.,0,bank_service,0:bank_service:4,curated_legitimate_template
+Voice-note transcript: Your grocery order has been packed and will arrive between 2 PM and 4 PM.,0,delivery_service,0:delivery_service:4,curated_legitimate_template
+Voice-note transcript: Your pharmacy refill is ready. Please collect it with the prescription slip.,0,health_school,0:health_school:4,curated_legitimate_template
+Voice-note transcript: Broadband maintenance is scheduled tonight from 1 AM to 3 AM. Service may be interrupted.,0,utilities,0:utilities:4,curated_legitimate_template
+Voice-note transcript: Aadhaar update appointment is confirmed. No OTP sharing is required with any caller.,0,travel_government,0:travel_government:4,curated_legitimate_template
+Voice-note transcript: Your insurance advisor can schedule an annual policy review next week.,0,commerce,0:commerce:4,curated_legitimate_template

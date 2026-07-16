@@ -10,6 +10,9 @@ ET AI Hackathon 2026, Problem Statement 6. This repository contains a working mu
 - Hybrid BM25 + dense RAG with cross-encoder reranking.
 - LangGraph agent routing, traceable fusion, calibration, and modality-gated XGBoost fallback.
 - Fraud-network analysis with a Graph Attention Network and community/centrality signals.
+- **Threat Intelligence Command Centre** — interactive geospatial heatmap (Leaflet), D3 force-directed fraud network graph, predictive threat feed, and AI model benchmark dashboard.
+- **Real-time analytics** — every analysis is tracked; Command Centre stats update live (auto-refresh every 10 seconds). The map remains explicitly labelled as demonstration intelligence until authorized feeds are connected.
+- **False-positive reduction** — `needs_review` intermediate verdict tier prevents borderline cases from triggering false alarms.
 - Authentication, case history, evidence hashing, reporting guidance, WebSockets, hotspots, and multilingual UI support.
 - Optional RabbitMQ quorum-queue processing for authenticated, durable text-analysis jobs.
 - Optional Redis coordination for shared login/analysis rate limits without storing citizen payloads.
@@ -21,7 +24,10 @@ This is a research prototype. It does not automatically file police complaints, 
 
 ```text
 backend/                 FastAPI API, agents, models, data and training scripts
+backend/analytics.py     Real-time analytics tracker (logs every analysis for live Command Centre)
 frontend/                React 19 + Vite application
+frontend/src/CommandCentre.jsx   Threat Intelligence Command Centre component
+frontend/src/CommandCentre.css   Command Centre styling
 docs/                    Architecture and problem-statement checklist
 backend/data/training/   Small tracked datasets and reproducible manifests
 ```
@@ -167,7 +173,7 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ### Text
 
-The tracked generator creates 240 balanced records across six scam and six legitimate categories. Stable template groups prevent variants of one template from crossing train and validation folds.
+The tracked generator creates 240 balanced records across six scam and six legitimate categories. An optional hard-negative mode adds legitimate texts containing scam-adjacent keywords (arrest, CBI, customs, OTP) for false-positive reduction research. Stable template groups prevent variants of one template from crossing train and validation folds.
 
 ```powershell
 python backend\data\scripts\generate_text_dataset.py
@@ -237,6 +243,12 @@ npm run i18n:check
 npm run build
 ```
 
+Live analytics end-to-end test (requires running backend):
+
+```powershell
+python backend\_test_live_analytics.py
+```
+
 RabbitMQ, Redis, and MCP integration checks:
 
 ```powershell
@@ -264,9 +276,49 @@ Set `SHIELD_API_TOKEN` before the MCP test to additionally verify MCP -> API -> 
 | `GET /api/jobs/{job_id}` | Owner-scoped asynchronous job status/result |
 | `GET /api/graph/analyze` | Fraud-network analysis |
 | `GET /api/graph/visualization` | Graph visualization payload |
+| `GET /api/intelligence/threat-feed` | **Real-time** threat intelligence (live analytics from actual system analyses) |
+| `GET /api/intelligence/command-centre` | Unified command centre data (geospatial + network + system) |
+| `GET /api/benchmarks` | AI model benchmark metrics (precision, recall, F1, FP rate per model) |
 | `GET /api/demo/scam-transcript` | Scam demo fixture |
 | `GET /api/demo/benign-transcript` | Benign demo fixture |
 | `WS /ws/trace` | Live analysis trace |
+
+## Command Centre
+
+The Command Centre provides a unified threat intelligence dashboard accessible via the "Command Centre" tab in the frontend. It consists of four panels:
+
+| Panel | Technology | Data Source |
+|---|---|---|
+| **Geospatial Intelligence** | Leaflet + OpenStreetMap | Demonstration intelligence feed with 12 reference hotspots; authorized feeds are required for operations |
+| **Fraud Network Graph** | D3 force-directed simulation | `/api/graph/visualization` — current local GAT demonstration graph |
+| **Live Threat Feed** | Auto-refresh every 10s | `/api/intelligence/threat-feed` — real-time from `analytics.py` tracker |
+| **AI Benchmarks** | Visual progress bars | `/api/benchmarks` — precision, recall, F1, FP rate per model |
+
+### Real-Time Analytics
+
+The threat feed is **not hardcoded**. Every analysis submitted through any endpoint (`/api/analyze/text`, `/api/analyze/image`, `/api/analyze/audio`, `/api/analyze`) is logged to an in-memory analytics tracker (`backend/analytics.py`). The Command Centre reads from this tracker and auto-refreshes every 10 seconds.
+
+- **Total Analyses**: Count of all analyses performed since server start
+- **Threats Detected**: Analyses returning `high_risk` or `medium_risk` verdicts
+- **Cleared Safe**: Analyses returning `safe` or `low_risk` verdicts
+- **Scam Patterns**: Distinct scam types extracted from NLP RAG matches
+- **Modality Breakdown**: Count of text/image/audio analyses
+- **Active Campaigns**: Scam patterns grouped with detection count, trend (surging/rising/steady/new), and confidence stats
+
+### Verdict Tiers
+
+The fusion orchestrator uses six verdict tiers to minimize false positives:
+
+| Calibrated Score | Verdict | Risk Level |
+|---|---|---|
+| > 0.80 | `high_risk` | critical |
+| > 0.60 | `high_risk` | high |
+| > 0.45 | `medium_risk` | medium |
+| > 0.30 | `needs_review` | review |
+| > 0.20 | `low_risk` | low |
+| ≤ 0.20 | `safe` | safe |
+
+The `needs_review` tier prevents borderline cases (0.30–0.45) from triggering false alarms, routing them for human review instead.
 
 ## Current Data and Model Boundaries
 
@@ -276,7 +328,7 @@ Set `SHIELD_API_TOKEN` before the MCP test to additionally verify MCP -> API -> 
 - The graph is a 69-node demonstration network, not live law-enforcement intelligence.
 - CLIP and XGBoost load lazily or fall back safely when artifacts are unavailable.
 - Current grouped currency validation: 93.9% accuracy, 93.5% F1, and 0.984 ROC-AUC. These are research-split metrics, not currency-certification accuracy.
-- Current Chakravyuh test-only text result: 0.849 ROC-AUC, 0.789 F1, and 16.1% false-positive rate across 175 scenarios. Regional-language subsets are too small for language-level claims.
+- Current Chakravyuh test-only text result: 0.853 ROC-AUC, 0.746 F1, 95.7% precision, 61.1% recall, and 12.9% false-positive rate (4/31 benign) across 175 scenarios at the action threshold. Top category scores include OTP theft (F1: 0.957) and KYC fraud (F1: 0.902). The `needs_review` tier captures 8 borderline cases (7 scam, 1 benign). Regional-language subsets are too small for language-level claims.
 - Current fusion meta-learner: 1,382 labelled rows and 0.723 overall validation ROC-AUC. The deployment quality gate enables XGBoost only for image signatures (0.951 validation ROC-AUC); text, audio, and unseen combinations use weighted fallback.
 - Court admissibility and government deployment require authorized acquisition, retention, audit, privacy, accessibility, security review, human oversight, and independent validation.
 

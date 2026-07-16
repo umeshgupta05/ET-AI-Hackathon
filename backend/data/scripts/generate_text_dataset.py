@@ -106,6 +106,47 @@ LEGIT_TEMPLATES = {
 }
 
 
+# Hard negatives: legitimate texts containing scam-adjacent keywords.
+# These teach the model to distinguish manipulation patterns from keywords.
+HARD_NEGATIVE_TEMPLATES = {
+    "legit_police_legal": [
+        "This is a public advisory from {agency}. If anyone calls claiming to be CBI or police and demands money, it is a scam. Report to 1930.",
+        "Court summons for case {case} has been issued. Appear at the district court on {date}. No payment is required over the phone.",
+        "Your FIR number {case} has been registered at the local police station. Visit the station with your ID for further process.",
+        "The cyber cell advisory warns citizens not to share OTP or bank details with anyone claiming to be a police officer.",
+        "Verification call from police station regarding your passport application. Please visit the station with documents on {date}.",
+    ],
+    "legit_customs_courier": [
+        "Your international parcel has arrived at customs. Pay the duty of Rs {fee} at the official customs counter or government portal.",
+        "Customs clearance for your shipment is complete. Collect from the post office with your ID proof.",
+        "Your courier tracking shows the package is held for address verification. Update your address on the official website.",
+        "India Post notification: your registered parcel from abroad requires customs duty. Pay at the post office only.",
+        "Your export shipment documents have been verified by customs. No further action is needed.",
+    ],
+    "legit_bank_kyc": [
+        "As per RBI guidelines, please complete KYC at your nearest branch with original Aadhaar and PAN. We will never ask for OTP on call.",
+        "Your KYC documents have been verified. Account services are fully active. No further action required.",
+        "RBI circular: Banks must complete re-KYC for accounts older than 10 years. Visit your branch. Do not share details over phone.",
+        "Your bank OTP for transaction Rs {amount} at Amazon has been sent. Do not share this with anyone, including bank staff.",
+        "Account statement for the quarter is available. Login to internet banking or visit the branch for a printed copy.",
+    ],
+    "legit_financial_awareness": [
+        "SEBI advisory: Investment returns above 15% annually carry high risk. Verify any scheme at sebi.gov.in before investing.",
+        "Your mutual fund SIP of Rs {fee} has been deducted. NAV and units are visible in the official app.",
+        "Income tax refund of Rs {amount} has been initiated. It will be credited to your registered bank account in 7 days.",
+        "LIC premium reminder: Your policy premium of Rs {fee} is due on {date}. Pay online or at the LIC branch.",
+        "Your EPF withdrawal request has been processed. Amount will be credited in 3 working days.",
+    ],
+    "legit_news_discussion": [
+        "News report: Police arrested a gang running a digital arrest scam targeting senior citizens in Delhi and Mumbai.",
+        "Awareness message: Never transfer money to anyone claiming to be from CBI, customs, or narcotics over phone or video call.",
+        "Government campaign: Dial 1930 if you receive a call threatening arrest or demanding money transfer for case settlement.",
+        "Consumer forum verdict: Bank must refund Rs {amount} to customer who was victim of an OTP phishing scam.",
+        "Cyber awareness workshop at the community center this Saturday. Learn to identify phishing, vishing, and digital arrest frauds.",
+    ],
+}
+
+
 VALUES = [
     {"officer": "Inspector Sharma", "agency": "CBI Cyber Cell", "law": "PMLA Section 45", "bank": "State Bank", "doctor": "Mehta", "amount": "50,000", "fee": "5,000", "minutes": "30", "case": "CR-4521", "date": "July 15"},
     {"officer": "DSP Verma", "agency": "Economic Offences Wing", "law": "IT Act Section 66", "bank": "HDFC Bank", "doctor": "Patel", "amount": "2 lakhs", "fee": "12,000", "minutes": "45", "case": "PNR452178", "date": "August 2"},
@@ -126,7 +167,12 @@ def _render(template: str, idx: int) -> str:
     return CHANNEL_PREFIXES[value_idx] + template.format(**VALUES[value_idx])
 
 
-def _samples_from_templates(templates: dict[str, list[str]], label: int, target: int) -> list[dict]:
+def _samples_from_templates(
+    templates: dict[str, list[str]],
+    label: int,
+    target: int,
+    source: str,
+) -> list[dict]:
     samples = []
     categories = list(templates.keys())
     category_counts = {category: 0 for category in categories}
@@ -145,7 +191,7 @@ def _samples_from_templates(templates: dict[str, list[str]], label: int, target:
                 "label": label,
                 "category": category,
                 "template_group": f"{label}:{category}:{template_index}",
-                "source": "curated_scam_pattern_template",
+                "source": source,
             }
         )
         category_counts[category] += 1
@@ -153,20 +199,48 @@ def _samples_from_templates(templates: dict[str, list[str]], label: int, target:
     return samples
 
 
-def generate_scam_dataset(total_samples: int = 240) -> list[dict]:
-    """Generate a balanced dataset with at least 200 records by default."""
+def generate_scam_dataset(total_samples: int = 240, include_hard_negatives: bool = False) -> list[dict]:
+    """Generate a balanced scam-detection dataset.
+
+    Args:
+        total_samples: Total number of samples to generate.
+        include_hard_negatives: If True, includes hard-negative templates
+            (legitimate texts with scam-adjacent keywords) for FP reduction
+            research. Default False uses a balanced 50/50 split which
+            maximises F1 and recall.
+    """
     if total_samples < 200:
         total_samples = 200
-    scam_target = total_samples // 2
-    legit_target = total_samples - scam_target
-    samples = _samples_from_templates(SCAM_TEMPLATES, 1, scam_target)
-    samples.extend(_samples_from_templates(LEGIT_TEMPLATES, 0, legit_target))
+
+    if include_hard_negatives:
+        scam_target = int(total_samples * 0.55)
+        easy_legit_target = int(total_samples * 0.33)
+        hard_neg_target = total_samples - scam_target - easy_legit_target
+    else:
+        scam_target = total_samples // 2
+        easy_legit_target = total_samples - scam_target
+        hard_neg_target = 0
+
+    samples = _samples_from_templates(
+        SCAM_TEMPLATES, 1, scam_target, "curated_scam_pattern_template"
+    )
+    samples.extend(
+        _samples_from_templates(
+            LEGIT_TEMPLATES, 0, easy_legit_target, "curated_legitimate_template"
+        )
+    )
+    if hard_neg_target > 0:
+        samples.extend(
+            _samples_from_templates(
+                HARD_NEGATIVE_TEMPLATES, 0, hard_neg_target, "curated_hard_negative_template"
+            )
+        )
     return samples
 
 
-def save_dataset(total_samples: int = 240) -> list[dict]:
+def save_dataset(total_samples: int = 240, include_hard_negatives: bool = False) -> list[dict]:
     """Save dataset in JSON, JSONL, and CSV formats."""
-    samples = generate_scam_dataset(total_samples)
+    samples = generate_scam_dataset(total_samples, include_hard_negatives=include_hard_negatives)
 
     json_path = DATA_DIR / "scam_detection_dataset.json"
     jsonl_path = DATA_DIR / "scam_detection_dataset.jsonl"

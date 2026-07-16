@@ -543,6 +543,8 @@ class FusionOrchestrator:
                 verdict = "high_risk"
             elif fused_score > config.orchestrator.medium_risk_threshold:
                 verdict = "medium_risk"
+            elif fused_score > config.orchestrator.needs_review_threshold:
+                verdict = "needs_review"
             elif fused_score > config.orchestrator.low_risk_threshold:
                 verdict = "low_risk"
             else:
@@ -620,9 +622,12 @@ class FusionOrchestrator:
         elif calibrated_score > 0.60:
             risk_level = "high"
             calibrated_verdict = "high_risk"
-        elif calibrated_score > 0.40:
+        elif calibrated_score > 0.45:
             risk_level = "medium"
             calibrated_verdict = "medium_risk"
+        elif calibrated_score > 0.30:
+            risk_level = "review"
+            calibrated_verdict = "needs_review"
         elif calibrated_score > 0.20:
             risk_level = "low"
             calibrated_verdict = "low_risk"

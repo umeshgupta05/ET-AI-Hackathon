@@ -33,11 +33,12 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 BASE_MODEL = "cross-encoder/nli-distilroberta-base"
 DATASET_PATH = Path(__file__).resolve().parent.parent / "training" / "scam_detection_dataset.json"
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "trained_models" / "scam_classifier"
-MAX_LENGTH = 256
-BATCH_SIZE = 8
-EPOCHS = 10
+MAX_LENGTH = 384
+BATCH_SIZE = 16
+EPOCHS = 15
 LEARNING_RATE = 2e-5
 SEED = 42
+FP_PENALTY_WEIGHT = 1.0  # No extra penalty; hard negatives handle FP reduction
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)
@@ -112,9 +113,24 @@ def train(smoke: bool = False):
 
     # ─── Optimizer ────────────────────────────────────────────
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
-    criterion = nn.CrossEntropyLoss()
+
+    # Class-weighted loss: penalize FP (labelling legit as scam) more heavily
+    # class 0 = legitimate, class 1 = scam
+    class_weights = torch.tensor([FP_PENALTY_WEIGHT, 1.0], dtype=torch.float32).to(device)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
     training_epochs = 1 if smoke else EPOCHS
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_epochs)
+
+    # Linear warmup then cosine decay
+    warmup_steps = max(1, len(train_loader) * training_epochs // 10)
+    total_steps = len(train_loader) * training_epochs
+
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
+        progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+        return max(0.0, 0.5 * (1.0 + np.cos(np.pi * progress)))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     best_f1 = 0.0
     best_state = None
@@ -134,13 +150,14 @@ def train(smoke: bool = False):
             attention_mask = batch["attention_mask"].to(device)
             labels_batch = batch["labels"].to(device)
 
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels_batch)
-            loss = outputs.loss
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            loss = criterion(outputs.logits, labels_batch)
 
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
+            scheduler.step()
 
             total_loss += loss.item()
 
@@ -165,6 +182,10 @@ def train(smoke: bool = False):
         val_f1 = f1_score(all_true, all_preds, average="binary", zero_division=0)
         val_prec = precision_score(all_true, all_preds, average="binary", zero_division=0)
         val_rec = recall_score(all_true, all_preds, average="binary", zero_division=0)
+        val_array = np.asarray(all_true)
+        pred_array = np.asarray(all_preds)
+        benign_mask = val_array == 0
+        val_fpr = float(pred_array[benign_mask].mean()) if benign_mask.any() else 0.0
 
         print(f"  Epoch {epoch+1:2d}/{training_epochs} — Loss: {avg_loss:.4f} | "
               f"Val Acc: {val_acc:.3f} | F1: {val_f1:.3f} | Prec: {val_prec:.3f} | Rec: {val_rec:.3f}")
@@ -177,6 +198,7 @@ def train(smoke: bool = False):
                 "f1": float(val_f1),
                 "precision": float(val_prec),
                 "recall": float(val_rec),
+                "false_positive_rate": val_fpr,
             }
             no_improve = 0
         else:
@@ -185,8 +207,6 @@ def train(smoke: bool = False):
         if no_improve >= patience:
             print(f"\n  Early stopping at epoch {epoch+1}")
             break
-
-        scheduler.step()
 
     # ─── Save ─────────────────────────────────────────────────
     if best_state:
@@ -209,6 +229,10 @@ def train(smoke: bool = False):
         "split_method": "StratifiedGroupKFold(first fold, n_splits=5)",
         "train_count": len(train_texts),
         "validation_count": len(val_texts),
+        "max_length": MAX_LENGTH,
+        "class_weights": {"legitimate": FP_PENALTY_WEIGHT, "scam": 1.0},
+        "warmup_steps": warmup_steps,
+        "total_training_steps": total_steps,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     with open(final_path / "training_metadata.json", "w") as f:

@@ -977,3 +977,37 @@ textarea:focus-visible,
 .history-row { display: grid; grid-template-columns: 1fr auto; gap: 3px 14px; padding: 10px 0; border-bottom: 1px solid var(--hairline); font-size: 12px; }
 .history-row strong { color: var(--signal-alert); text-transform: uppercase; }
 .history-row time { grid-column: 1 / -1; color: var(--text-muted); }
+
+/* ── View Mode Toggle ── */
+.view-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 6px 24px;
+  background: var(--ink-750);
+  border-bottom: 1px solid var(--hairline);
+}
+.view-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: "Inter", sans-serif;
+}
+.view-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.5);
+}
+.view-btn.active {
+  background: #fff;
+  color: var(--brand-orange);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}

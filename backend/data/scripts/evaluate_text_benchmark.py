@@ -1,6 +1,7 @@
 """Evaluate the local text classifier on the test-only Chakravyuh benchmark."""
 
 import asyncio
+import argparse
 import json
 import sys
 from collections import defaultdict
@@ -78,7 +79,25 @@ def grouped_metrics(labels: np.ndarray, predictions: np.ndarray, groups: list[st
     return results
 
 
-async def evaluate() -> dict:
+def classification_metrics(labels: np.ndarray, probabilities: np.ndarray, threshold: float) -> tuple[np.ndarray, dict]:
+    """Measure an explicit binary action threshold on held-out benchmark scores."""
+    predictions = (probabilities >= threshold).astype(np.int64)
+    benign_mask = labels == 0
+    return predictions, {
+        "threshold": threshold,
+        "accuracy": float(accuracy_score(labels, predictions)),
+        "f1": float(f1_score(labels, predictions, zero_division=0)),
+        "precision": float(precision_score(labels, predictions, zero_division=0)),
+        "recall": float(recall_score(labels, predictions, zero_division=0)),
+        "false_positive_rate": float(predictions[benign_mask].mean()),
+        "false_positive_count": int(predictions[benign_mask].sum()),
+        "benign_count": int(benign_mask.sum()),
+    }
+
+
+async def evaluate(action_threshold: float, review_threshold: float) -> dict:
+    if not 0.0 <= review_threshold < action_threshold <= 1.0:
+        raise ValueError("review threshold must be lower than the action threshold, both between 0 and 1")
     benchmark = fetch_benchmark()
     texts = [
         "\n".join(turn.get("text", "") for turn in row.get("attack_sequence", []))
@@ -106,8 +125,12 @@ async def evaluate() -> dict:
         ],
         dtype=np.float64,
     )
-    predictions = (probabilities >= 0.5).astype(np.int64)
+    baseline_predictions, baseline_metrics = classification_metrics(labels, probabilities, 0.5)
+    action_predictions, action_metrics = classification_metrics(labels, probabilities, action_threshold)
     benign_mask = labels == 0
+    review_mask = (probabilities >= review_threshold) & (probabilities < action_threshold)
+    review_benign_count = int((review_mask & benign_mask).sum())
+    review_scam_count = int((review_mask & ~benign_mask).sum())
 
     metadata = {
         "benchmark": "Chakravyuh-Bench-v0",
@@ -120,25 +143,31 @@ async def evaluate() -> dict:
         "sample_count": len(labels),
         "scam_count": int(labels.sum()),
         "benign_and_borderline_count": int((labels == 0).sum()),
-        "accuracy": float(accuracy_score(labels, predictions)),
-        "f1": float(f1_score(labels, predictions, zero_division=0)),
-        "precision": float(precision_score(labels, predictions, zero_division=0)),
-        "recall": float(recall_score(labels, predictions, zero_division=0)),
         "roc_auc": float(roc_auc_score(labels, probabilities)),
-        "false_positive_rate": float(predictions[benign_mask].mean()),
+        "classifier_default_threshold_metrics": baseline_metrics,
+        "operating_policy": {
+            "action_threshold": action_threshold,
+            "needs_review_threshold": review_threshold,
+            "action_metrics": action_metrics,
+            "needs_review_count": int(review_mask.sum()),
+            "needs_review_benign_count": review_benign_count,
+            "needs_review_scam_count": review_scam_count,
+            "needs_review_benign_rate": float(review_benign_count / max(int(benign_mask.sum()), 1)),
+            "disclosure": "Needs-review cases are withheld from automated action; they are not counted as cleared-safe cases.",
+        },
         "per_difficulty": grouped_metrics(
             labels,
-            predictions,
+            action_predictions,
             [row.get("ground_truth", {}).get("difficulty", "unknown") for row in benchmark],
         ),
         "per_category": grouped_metrics(
             labels,
-            predictions,
+            action_predictions,
             [row.get("ground_truth", {}).get("category", "unknown") for row in benchmark],
         ),
         "per_language": grouped_metrics(
             labels,
-            predictions,
+            action_predictions,
             [row.get("metadata", {}).get("language", "unknown") for row in benchmark],
         ),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -155,4 +184,8 @@ async def evaluate() -> dict:
 
 
 if __name__ == "__main__":
-    asyncio.run(evaluate())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--action-threshold", type=float, default=0.60)
+    parser.add_argument("--review-threshold", type=float, default=0.45)
+    arguments = parser.parse_args()
+    asyncio.run(evaluate(arguments.action_threshold, arguments.review_threshold))

@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import CommandCentre from "./CommandCentre";
+import "./CommandCentre.css";
 import {
   AlertTriangle,
   BarChart3,
@@ -694,6 +696,7 @@ export default function App() {
   const [liveStatus, setLiveStatus] = useState("reconnecting");
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [viewMode, setViewMode] = useState("analysis");
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const audioInputRef = useRef(null);
@@ -920,7 +923,20 @@ export default function App() {
           onProfileUpdated={(updated) => { setUser(updated); changeLanguage(updated.preferred_language); }}
         />
       )}
+      <div className="view-toggle">
+        <button className={viewMode === "analysis" ? "view-btn active" : "view-btn"} onClick={() => setViewMode("analysis")}>
+          <ShieldCheck size={16} /> Fraud Analysis
+        </button>
+        <button className={viewMode === "command" ? "view-btn active" : "view-btn"} onClick={() => setViewMode("command")}>
+          <Compass size={16} /> Command Centre
+        </button>
+      </div>
       <div className="main">
+        {viewMode === "command" ? (
+          <div className="chat-area" style={{ maxWidth: "100%", flex: 1 }}>
+            <CommandCentre />
+          </div>
+        ) : (
         <div className="chat-area">
           {messages.length === 0 ? (
             <WelcomeScreen
@@ -1070,8 +1086,9 @@ export default function App() {
           </div>
         </div>
 
+        )}
         {/* Right sidebar - Agent Trace */}
-        {activeResult && (
+        {viewMode === "analysis" && activeResult && (
           <div className="sidebar">
             <AgentTrace trace={activeResult.trace || []} />
             {activeResult.agents_invoked?.length > 0 && (

@@ -580,6 +580,7 @@ class GraphAgent:
                 "id": node_id,
                 "type": attrs.get("type", "unknown"),
                 "label": attrs.get("label", "unknown"),
+                "risk_score": 1.0 if attrs.get("label") == "scammer" else 0.7 if attrs.get("label") == "mule" else 0.15 if attrs.get("label") == "victim" else 0.3,
                 "color": color_map.get(attrs.get("label", ""), "#94a3b8"),
             })
 
