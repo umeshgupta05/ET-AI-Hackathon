@@ -130,8 +130,8 @@ class NLPAgentConfig:
     # RAG settings
     rag_top_k: int = 3
     rag_similarity_threshold: float = 0.4
-    # DistilBERT classification
-    text_classifier_threshold: float = 0.5
+    # DistilBERT classification — matches benchmark operating_policy.action_threshold
+    text_classifier_threshold: float = 0.6
     # LLM reasoning
     max_reasoning_turns: int = 10
     temperature: float = 0.3
@@ -149,7 +149,7 @@ class OrchestratorConfig:
     text_classifier_weight: float = 0.15
     # Calibration
     calibration_method: str = "isotonic"  # "isotonic" or "temperature"
-    # Verdict thresholds
+    # Verdict thresholds (applied to the fused score, not the local classifier)
     high_risk_threshold: float = 0.75
     medium_risk_threshold: float = 0.60
     needs_review_threshold: float = 0.45
