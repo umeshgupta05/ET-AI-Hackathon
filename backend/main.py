@@ -13,6 +13,8 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"  # suppress TF warnings
 
 import asyncio
 import base64
+import html
+import hmac
 import io
 import json
 import logging
@@ -38,7 +40,7 @@ from fastapi import (
     Request,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 # Load environment variables
@@ -124,7 +126,7 @@ app = FastAPI(
     description=(
         "AI-powered fraud detection platform using 17 AI techniques: "
         "YOLOv8, EfficientNet, Contrastive Learning, ELA, FFT, NPR, CLIP, Grad-CAM, "
-        "Whisper, WavLM/AASIST, Kimi K2.5, Llama 4 Scout, DistilBERT, "
+        "Whisper, WavLM/AASIST, Kimi K2.5, Qwen 3.6, DistilBERT, "
         "Hybrid RAG, Multi-Role CoT, Ensemble Fusion, Calibration."
     ),
     version=config.app_version,
@@ -369,6 +371,77 @@ def _log_to_analytics(result: dict, modality: str = "text") -> None:
         logger.warning(f"Analytics logging failed: {e}")
 
 
+async def _verify_channel_webhook(request: Request) -> None:
+    """Optional shared-secret gate for public channel webhooks."""
+    expected = os.getenv("MULTICHANNEL_WEBHOOK_TOKEN", "").strip()
+    if not expected:
+        return
+    supplied = (
+        request.headers.get("X-Shield-Channel-Token")
+        or request.query_params.get("token")
+        or ""
+    ).strip()
+    if not supplied or not hmac.compare_digest(expected, supplied):
+        raise HTTPException(status_code=401, detail="Invalid channel webhook token")
+
+
+def _twiml(*parts: str) -> Response:
+    return Response(
+        content=f'<?xml version="1.0" encoding="UTF-8"?><Response>{"".join(parts)}</Response>',
+        media_type="application/xml",
+    )
+
+
+def _say(text: str, *, language: str = "en-IN") -> str:
+    return f'<Say language="{html.escape(language)}">{html.escape(text)}</Say>'
+
+
+def _message(text: str) -> Response:
+    return _twiml(f"<Message>{html.escape(text)}</Message>")
+
+
+def _compact_channel_guidance(result: dict, *, channel: str, language: str) -> str:
+    verdict = str(result.get("verdict") or result.get("final_verdict") or "unknown").replace("_", " ")
+    risk_level = str(result.get("risk_level") or "unknown").replace("_", " ")
+    confidence = round(float(result.get("confidence") or 0) * 100)
+    nlp = result.get("agent_results", {}).get("nlp", {})
+    action = (
+        nlp.get("recommended_action")
+        or nlp.get("reasoning")
+        or reporting_guidance(risk_level).get("immediate_actions", ["Use caution."])[0]
+    )
+    action = " ".join(str(action).split())
+    if len(action) > 260:
+        action = action[:257].rstrip() + "..."
+    return (
+        f"Shield verdict ({channel}): {risk_level.upper()} risk, {confidence}% confidence. "
+        f"Assessment: {verdict}. Next step: {action} "
+        "If money was transferred, call 1930 and preserve screenshots, numbers, audio, and transaction IDs."
+    )
+
+
+async def _analyze_channel_text(
+    *,
+    text: str,
+    language: str,
+    channel: str,
+    sender: str = "",
+) -> dict:
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="System not initialized")
+    clean_text = " ".join(text.split())
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="Message text is required")
+    result = await orchestrator.process(
+        text=f"{channel} citizen report: {clean_text}",
+        context={"channel": channel, "sender": sender},
+        language=normalize_language(language),
+    )
+    result["channel"] = channel
+    _log_to_analytics(result, modality=channel)
+    return result
+
+
 @app.post("/api/auth/register")
 async def register(request: RegisterRequest):
     if request.preferred_language not in SUPPORTED_LANGUAGES:
@@ -519,6 +592,135 @@ async def voice_synthesize(request: VoiceSynthesisRequest):
 # ─── API Endpoints ───────────────────────────────────────────────────────
 
 
+@app.get("/api/channels")
+async def channel_capabilities():
+    """Advertise citizen-facing app, WhatsApp, and IVR readiness."""
+    protected = bool(os.getenv("MULTICHANNEL_WEBHOOK_TOKEN", "").strip())
+    return {
+        "channels": {
+            "app": {
+                "status": "ready",
+                "surface": "React responsive web app / mobile-web app",
+                "capabilities": ["text", "image", "audio", "voice_recording", "case_history"],
+            },
+            "whatsapp": {
+                "status": "ready",
+                "webhook": "/api/channels/whatsapp",
+                "provider_contract": "Twilio/Exotel-style x-www-form-urlencoded webhook",
+                "capabilities": ["text_conversation", "localized_reply", "official_reporting_guidance"],
+                "protected_by_token": protected,
+            },
+            "ivr": {
+                "status": "ready",
+                "start_webhook": "/api/channels/ivr/start",
+                "analysis_webhook": "/api/channels/ivr/analyze",
+                "provider_contract": "TwiML-compatible speech and DTMF flow",
+                "capabilities": ["speech_capture", "dtmf_menu", "spoken_verdict", "official_reporting_guidance"],
+                "protected_by_token": protected,
+            },
+        },
+        "language_count": len(SUPPORTED_LANGUAGES),
+        "disclosure": "Channel webhooks provide guidance and risk assessment; they do not file official complaints automatically.",
+    }
+
+
+@app.post("/api/channels/whatsapp")
+async def whatsapp_channel(
+    request: Request,
+    Body: str = Form(""),
+    From: str = Form(""),
+    ProfileName: str = Form(""),
+    WaId: str = Form(""),
+    NumMedia: int = Form(0),
+    MediaContentType0: str = Form(""),
+    language: str = Form("en"),
+):
+    """WhatsApp conversational webhook returning provider-compatible XML."""
+    await _verify_channel_webhook(request)
+    sender = WaId or From or ProfileName
+    if NumMedia and not Body.strip():
+        return _message(
+            "Media received. Please send a short text description with the screenshot, note image, or voice note so Shield can triage it safely. For full image/audio analysis, use the app upload flow."
+        )
+
+    try:
+        result = await _analyze_channel_text(
+            text=Body,
+            language=language,
+            channel="whatsapp",
+            sender=sender,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 400:
+            return _message("Send the suspicious WhatsApp/SMS text, call transcript, or payment request here for a fraud-risk check.")
+        raise
+
+    reply = _compact_channel_guidance(result, channel="WhatsApp", language=language)
+    if NumMedia:
+        reply += f" Media noted ({MediaContentType0 or 'attachment'}); preserve the original file as evidence."
+    return _message(reply)
+
+
+@app.api_route("/api/channels/ivr/start", methods=["GET", "POST"])
+async def ivr_start(request: Request, language: str = Query("en")):
+    """Start an IVR flow for citizens calling a fraud-help number."""
+    await _verify_channel_webhook(request)
+    lang = normalize_language(language)
+    prompt = (
+        "Welcome to Digital Public Safety Shield. Briefly describe the suspicious call, message, "
+        "payment request, or currency note after the beep. Press 2 for official reporting guidance, "
+        "or 9 to repeat this menu."
+    )
+    gather = (
+        f'<Gather input="speech dtmf" timeout="6" speechTimeout="auto" numDigits="1" '
+        f'action="/api/channels/ivr/analyze?language={html.escape(lang)}" method="POST">'
+        f'{_say(prompt)}</Gather>'
+    )
+    return _twiml(gather, _say("We did not receive input. Please call again or use the mobile app."))
+
+
+@app.post("/api/channels/ivr/analyze")
+async def ivr_analyze(
+    request: Request,
+    SpeechResult: str = Form(""),
+    Digits: str = Form(""),
+    From: str = Form(""),
+    language: str = Query("en"),
+):
+    """Analyze an IVR speech capture and return a spoken verdict."""
+    await _verify_channel_webhook(request)
+    lang = normalize_language(language)
+
+    if Digits == "9":
+        return await ivr_start(request, language=lang)
+    if Digits == "2":
+        guidance = reporting_guidance("high")
+        text = " ".join(guidance["immediate_actions"][:3])
+        return _twiml(
+            _say(text),
+            _say("For cyber fraud, call 1930 or visit cybercrime dot gov dot in. This system does not file a complaint automatically."),
+        )
+    if not SpeechResult.strip():
+        gather = (
+            f'<Gather input="speech dtmf" timeout="6" speechTimeout="auto" numDigits="1" '
+            f'action="/api/channels/ivr/analyze?language={html.escape(lang)}" method="POST">'
+            f'{_say("Please describe the suspicious incident now. Press 2 for reporting guidance.")}</Gather>'
+        )
+        return _twiml(gather)
+
+    result = await _analyze_channel_text(
+        text=SpeechResult,
+        language=lang,
+        channel="ivr",
+        sender=From,
+    )
+    reply = _compact_channel_guidance(result, channel="IVR", language=lang)
+    return _twiml(
+        _say(reply),
+        _say("To report financial cyber fraud, call 1930 immediately. Preserve evidence and do not share OTP or banking credentials."),
+    )
+
+
 @app.get("/api/health")
 async def health_check():
     """System health check with agent status."""
@@ -578,6 +780,13 @@ async def health_check():
             "guided_official_reporting": True,
             "realtime_websocket": True,
             "localized_ai_explanations": True,
+            "multi_channel_citizen_ai": {
+                "app": True,
+                "whatsapp_webhook": "/api/channels/whatsapp",
+                "ivr_start_webhook": "/api/channels/ivr/start",
+                "ivr_analysis_webhook": "/api/channels/ivr/analyze",
+                "webhook_token_required": bool(os.getenv("MULTICHANNEL_WEBHOOK_TOKEN", "").strip()),
+            },
             "rabbitmq_jobs": queue_readiness,
             "redis_coordination": redis_readiness,
             "mcp_adapter": {

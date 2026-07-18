@@ -8,8 +8,12 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
 
+from dotenv import load_dotenv
+
 # ─── Paths ───────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
 DATA_DIR = BASE_DIR / "data"
 SCAM_PATTERNS_DIR = DATA_DIR / "scam_patterns"
 MODELS_CACHE_DIR = BASE_DIR / "model_cache"
@@ -34,12 +38,12 @@ class GroqConfig:
     base_url: str = "https://api.groq.com/openai/v1"
     # Text fallback used when the primary Kimi provider is unavailable
     primary_model: str = "openai/gpt-oss-20b"
-    # Groq-supported vision fallback when primary Kimi access is unavailable
-    multimodal_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    # Multimodal document/currency fallback. Scout and Maverick are deprecated on Groq.
+    multimodal_model: str = "qwen/qwen3.6-27b"
     # Larger reasoning fallback
     reasoning_model: str = "openai/gpt-oss-120b"
-    # Fast lightweight: Llama 4 Scout
-    fast_model: str = "llama-3.1-8b-instant"
+    # Fast text routing and lightweight fallback.
+    fast_model: str = "openai/gpt-oss-20b"
     # Whisper for speech-to-text
     whisper_model: str = "whisper-large-v3"
     # Rate limits (free tier)

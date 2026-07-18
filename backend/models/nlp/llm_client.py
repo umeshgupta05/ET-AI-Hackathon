@@ -3,7 +3,7 @@ Unified LLM Client — Multi-provider with automatic failover.
 
 Provider chain:
 1. OpenRouter (Kimi K2.5) — primary reasoning and multimodal provider
-2. Groq (GPT-OSS / Llama) — low-latency fallback
+2. Groq (GPT-OSS / Qwen) — low-latency and multimodal fallback
 3. Local HuggingFace (Phi-4-mini) — emergency offline
 
 All providers use OpenAI-compatible API format.
@@ -37,16 +37,16 @@ class LLMRole(str, Enum):
     REASONING = "reasoning"  # Kimi K2.5 — agentic scam analysis
     MULTIMODAL = "multimodal"  # Kimi K2.5 — image and text reasoning
     ROUTING = "routing"  # Kimi K2.5 — orchestrator decisions
-    FAST = "fast"  # Llama 4 Scout — quick classification
+    FAST = "fast"  # GPT-OSS 20B — quick classification
 
 
 # Map roles → model IDs per provider
 _MODEL_MAP: dict[LLMProvider, dict[LLMRole, str]] = {
     LLMProvider.GROQ: {
-        LLMRole.REASONING: config.groq.primary_model,  # GPT-OSS fallback
-        LLMRole.MULTIMODAL: config.groq.multimodal_model,  # Llama 4 Maverick
-        LLMRole.ROUTING: config.groq.primary_model,  # GPT-OSS fallback
-        LLMRole.FAST: config.groq.fast_model,  # Llama 4 Scout
+        LLMRole.REASONING: config.groq.reasoning_model,  # GPT-OSS 120B fallback
+        LLMRole.MULTIMODAL: config.groq.multimodal_model,  # Qwen 3.6 vision fallback
+        LLMRole.ROUTING: config.groq.primary_model,  # GPT-OSS 20B routing fallback
+        LLMRole.FAST: config.groq.fast_model,  # GPT-OSS 20B fast fallback
     },
     LLMProvider.OPENROUTER: {
         LLMRole.REASONING: config.openrouter.reasoning_model,
@@ -227,6 +227,10 @@ class LLMClient:
                             "exclude": True,
                         }
                     }
+                elif provider == LLMProvider.GROQ and model.startswith("openai/gpt-oss-"):
+                    kwargs["reasoning_effort"] = (
+                        "medium" if role == LLMRole.REASONING else "low"
+                    )
 
                 logger.info(f" Calling {provider.value} → {model}")
                 response = await client.chat.completions.create(**kwargs)
@@ -376,7 +380,7 @@ class LLMClient:
         json_mode: bool = True,
     ) -> dict[str, Any]:
         """
-        Fast classification using Llama 4 Scout.
+        Fast classification using GPT-OSS 20B.
         For: quick input routing, modality detection, simple classification.
         """
         messages = [

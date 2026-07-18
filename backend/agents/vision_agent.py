@@ -189,7 +189,8 @@ class VisionAgent:
             "attention_map_base64": attention_map_b64,
             "annotated_overlay_base64": overlay_b64,
             "multimodal_reasoning": multimodal_reasoning,
-            "maverick_reasoning": multimodal_reasoning,
+            "groq_multimodal_reasoning": multimodal_reasoning,
+            "maverick_reasoning": multimodal_reasoning,  # backward-compatible response alias
             "response_language": normalize_language(language),
             "explanation": self._generate_explanation(
                 classification, forensics, multimodal_reasoning

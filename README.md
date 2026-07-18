@@ -14,6 +14,7 @@ ET AI Hackathon 2026, Problem Statement 6. This repository contains a working mu
 - **Real-time analytics** — every analysis is tracked; Command Centre stats update live (auto-refresh every 10 seconds). The map remains explicitly labelled as demonstration intelligence until authorized feeds are connected.
 - **False-positive reduction** — `needs_review` intermediate verdict tier prevents borderline cases from triggering false alarms.
 - Authentication, case history, evidence hashing, reporting guidance, WebSockets, hotspots, and multilingual UI support.
+- Multi-channel conversational access: React app channel, WhatsApp-style chat webhook, and TwiML-compatible IVR voice/DTMF flow.
 - Optional RabbitMQ quorum-queue processing for authenticated, durable text-analysis jobs.
 - Optional Redis coordination for shared login/analysis rate limits without storing citizen payloads.
 - Optional MCP stdio analyst adapter with tools, resources, prompts, case evidence, and queued analysis.
@@ -64,8 +65,8 @@ JWT_SECRET=your_long_random_secret
 DEBUG=false
 ```
 
-- OpenRouter uses `moonshotai/kimi-k2.5` first, then `moonshotai/kimi-k2.6:free` before the existing Groq fallbacks for reasoning, routing, and vision.
-- Groq provides hosted Whisper transcription and the final configured fallback services.
+- OpenRouter uses `moonshotai/kimi-k2.5` first, then `moonshotai/kimi-k2.6:free`. Groq then uses `openai/gpt-oss-120b` for reasoning, `openai/gpt-oss-20b` for routing and fast classification, and `qwen/qwen3.6-27b` for multimodal analysis.
+- Groq provides hosted Whisper transcription and the configured fallbacks. Groq Compound is deliberately excluded from citizen evidence analysis because its web-search and code-execution tools are unnecessary for this privacy-sensitive workflow.
 - Generate a JWT secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 - Never commit `backend/.env`.
 - Set `ASYNC_JOBS_ENABLED=true` and `RABBITMQ_URL` only when running the optional broker and worker.
@@ -132,6 +133,25 @@ ANALYSIS_RATE_WINDOW_SECONDS=60
 ```
 
 FastAPI creates one shared asynchronous Redis pool and closes it at shutdown. Rate-limit increments and expiry are atomic. If Redis is disabled or unavailable, login protection falls back to the process-local limiter and analysis remains available; health reports the degraded state. Redis does not cache analysis text, media, model output, JWTs, or case evidence.
+
+## Multi-Channel Citizen AI
+
+The React frontend is the app channel. The backend also exposes provider-compatible conversational webhooks for the problem statement's WhatsApp and IVR channels:
+
+| Channel | Endpoint | Provider contract | What it does |
+|---|---|---|---|
+| App | `http://localhost:5173` | React responsive web/mobile app | Text, image, audio, voice recording, case history, command centre |
+| WhatsApp | `POST /api/channels/whatsapp` | Twilio/Exotel-style form webhook | Reads `Body`, analyzes text with the same orchestrator, returns XML `<Message>` guidance |
+| IVR | `GET/POST /api/channels/ivr/start` | TwiML-compatible voice menu | Prompts caller for speech or DTMF |
+| IVR analysis | `POST /api/channels/ivr/analyze` | TwiML-compatible speech/DTMF callback | Reads `SpeechResult` or keypad options, returns spoken verdict and reporting guidance |
+
+For local demos the channel webhooks work without a shared token. For public tunnels or deployed demos, set:
+
+```dotenv
+MULTICHANNEL_WEBHOOK_TOKEN=your-random-channel-secret
+```
+
+Then configure the provider to send either `X-Shield-Channel-Token: your-random-channel-secret` or append `?token=your-random-channel-secret` to the webhook URL. The webhooks return risk guidance and NCRP/1930 advice; they do not file official complaints automatically. Media sent to WhatsApp is acknowledged and preserved-by-user guidance is returned, while full image/audio analysis remains in the app upload flow unless an authorized provider media-download integration is added.
 
 ## Optional MCP Adapter
 

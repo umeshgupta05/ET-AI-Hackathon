@@ -95,7 +95,11 @@ def classification_metrics(labels: np.ndarray, probabilities: np.ndarray, thresh
     }
 
 
-async def evaluate(action_threshold: float, review_threshold: float) -> dict:
+async def evaluate(
+    action_threshold: float,
+    review_threshold: float,
+    sweep_thresholds: list[float] | None = None,
+) -> dict:
     if not 0.0 <= review_threshold < action_threshold <= 1.0:
         raise ValueError("review threshold must be lower than the action threshold, both between 0 and 1")
     benchmark = fetch_benchmark()
@@ -177,6 +181,11 @@ async def evaluate(action_threshold: float, review_threshold: float) -> dict:
             "Metrics evaluate the local text classifier, not the full Kimi/RAG orchestrator",
         ],
     }
+    if sweep_thresholds:
+        metadata["threshold_sweep"] = [
+            classification_metrics(labels, probabilities, threshold)[1]
+            for threshold in sweep_thresholds
+        ]
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print(json.dumps(metadata, indent=2))
@@ -187,5 +196,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--action-threshold", type=float, default=0.60)
     parser.add_argument("--review-threshold", type=float, default=0.45)
+    parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help="Record standard operating-point candidates in benchmark metadata.",
+    )
     arguments = parser.parse_args()
-    asyncio.run(evaluate(arguments.action_threshold, arguments.review_threshold))
+    thresholds = [0.07, 0.15, 0.30, 0.45, 0.60] if arguments.sweep else None
+    asyncio.run(evaluate(arguments.action_threshold, arguments.review_threshold, thresholds))

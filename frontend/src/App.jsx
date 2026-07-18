@@ -13,12 +13,14 @@ import {
   FileAudio,
   Inbox,
   Mic,
+  Moon,
   Network,
   Send,
   Settings2,
   ShieldCheck,
   Sparkles,
   Square,
+  Sun,
   UserRound,
   Volume2,
   X,
@@ -163,6 +165,8 @@ function Header({
   liveStatus,
   user,
   language,
+  theme,
+  onThemeToggle,
   onLanguageChange,
   onShowLogin,
   onShowRegister,
@@ -173,7 +177,7 @@ function Header({
   return (
     <header className="header">
       <div className="header__logo">
-        <div className="header__icon">
+        <div className="header__icon nav-logo-mark">
           <SvgIcon name="shield" />
         </div>
         <div>
@@ -191,6 +195,9 @@ function Header({
               : t("offline")}
         </div>
         <LanguageSelect value={language} onChange={onLanguageChange} />
+        <button className="theme-toggle" type="button" onClick={onThemeToggle} aria-label={t("toggleTheme", { defaultValue: "Toggle day and night" })}>
+          {theme === "dark" ? <Moon size={17} /> : <Sun size={17} />}
+        </button>
         <div className="header__badge">
           {systemStatus === "connected" ? t("online") : t("connecting")}
         </div>
@@ -209,6 +216,143 @@ function Header({
         )}
       </div>
     </header>
+  );
+}
+
+function SkylineBackdrop() {
+  const buildings = [
+    { x: 0, w: 70, h: 130, layer: "far" },
+    { x: 60, w: 50, h: 170, layer: "far" },
+    { x: 105, w: 85, h: 110, layer: "mid" },
+    { x: 185, w: 60, h: 200, layer: "mid" },
+    { x: 240, w: 45, h: 140, layer: "far" },
+    { x: 280, w: 95, h: 230, layer: "near", flag: true },
+    { x: 370, w: 55, h: 160, layer: "mid" },
+    { x: 420, w: 75, h: 190, layer: "near" },
+    { x: 490, w: 50, h: 120, layer: "far" },
+    { x: 535, w: 90, h: 210, layer: "mid" },
+    { x: 620, w: 60, h: 260, layer: "near", spire: true },
+    { x: 675, w: 70, h: 150, layer: "far" },
+    { x: 740, w: 85, h: 195, layer: "mid" },
+    { x: 820, w: 55, h: 130, layer: "far" },
+    { x: 870, w: 95, h: 220, layer: "near" },
+    { x: 960, w: 60, h: 170, layer: "mid" },
+    { x: 1015, w: 75, h: 140, layer: "far" },
+    { x: 1085, w: 65, h: 200, layer: "near" },
+    { x: 1145, w: 55, h: 160, layer: "mid" },
+  ];
+  const ordered = [...buildings].sort(
+    (a, b) =>
+      (a.layer === "far" ? 0 : a.layer === "mid" ? 1 : 2) -
+      (b.layer === "far" ? 0 : b.layer === "mid" ? 1 : 2),
+  );
+
+  return (
+    <div className="skyline-backdrop" aria-hidden="true">
+      <div className="skyline-sky" />
+      <svg className="stars" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMid slice">
+        {[120, 260, 380, 520, 640, 760, 880, 960, 1050, 1120, 200, 700].map((cx, i) => (
+          <circle key={cx} className="star" cx={cx} cy={[60, 120, 50, 90, 40, 110, 65, 140, 80, 130, 180, 170][i]} r={i % 3 === 0 ? 1.5 : 1} style={{ animationDelay: `${i * 0.22}s` }} />
+        ))}
+      </svg>
+      <div className="sun-moon-wrap">
+        <div className="sun-moon-glow" />
+        <svg width="100" height="100" viewBox="0 0 100 100">
+          <g className="sun-rays" fill="none">
+            <line x1="50" y1="8" x2="50" y2="18" />
+            <line x1="50" y1="82" x2="50" y2="92" />
+            <line x1="8" y1="50" x2="18" y2="50" />
+            <line x1="82" y1="50" x2="92" y2="50" />
+            <line x1="20" y1="20" x2="27" y2="27" />
+            <line x1="73" y1="73" x2="80" y2="80" />
+            <line x1="80" y1="20" x2="73" y2="27" />
+            <line x1="27" y1="73" x2="20" y2="80" />
+          </g>
+          <circle className="sun-moon" cx="50" cy="50" r="24" />
+        </svg>
+      </div>
+      <div className="clouds">
+        <svg className="cloud cloud-1" width="120" height="40" viewBox="0 0 120 40"><ellipse cx="30" cy="26" rx="26" ry="14" /><ellipse cx="60" cy="18" rx="30" ry="18" /><ellipse cx="90" cy="26" rx="22" ry="12" /></svg>
+        <svg className="cloud cloud-2" width="90" height="32" viewBox="0 0 90 32"><ellipse cx="22" cy="20" rx="20" ry="11" /><ellipse cx="46" cy="14" rx="22" ry="14" /><ellipse cx="70" cy="20" rx="18" ry="10" /></svg>
+        <svg className="cloud cloud-3" width="100" height="34" viewBox="0 0 100 34"><ellipse cx="24" cy="22" rx="22" ry="12" /><ellipse cx="52" cy="15" rx="26" ry="15" /><ellipse cx="80" cy="22" rx="18" ry="10" /></svg>
+      </div>
+      <svg className="bird bird-1" width="24" height="12" viewBox="0 0 24 12"><path d="M0 6 Q6 0 12 6 Q18 0 24 6" /></svg>
+      <svg className="bird bird-2" width="18" height="9" viewBox="0 0 18 9"><path d="M0 4.5 Q4.5 0 9 4.5 Q13.5 0 18 4.5" /></svg>
+      <div className="surveillance-layer">
+        {[1, 2].map((n) => (
+          <div className={`drone drone-${n}`} key={n}>
+            <div className="drone-scan" />
+            {n === 1 && <div className="scan-ring" />}
+            <svg className="drone-shell" viewBox="0 0 86 50">
+              <line className="drone-arm" x1="27" y1="24" x2="10" y2="13" />
+              <line className="drone-arm" x1="59" y1="24" x2="76" y2="13" />
+              <line className="drone-arm" x1="27" y1="25" x2="10" y2="37" />
+              <line className="drone-arm" x1="59" y1="25" x2="76" y2="37" />
+              <circle className="rotor-disc" cx="10" cy="12" r="8" />
+              <circle className="rotor-disc" cx="76" cy="12" r="8" />
+              <circle className="rotor-disc" cx="10" cy="38" r="8" />
+              <circle className="rotor-disc" cx="76" cy="38" r="8" />
+              <rect className="drone-body" x="25" y="17" width="36" height="18" rx="8" />
+              <path className="drone-detail" d="M33 21h20l-4 8H37z" />
+              <circle className="drone-lens" cx="43" cy="35" r="3.3" />
+            </svg>
+          </div>
+        ))}
+        <div className="cctv cctv-left">
+          <div className="cctv-status">AI CCTV LIVE</div>
+          <div className="cctv-pole" />
+          <div className="cctv-head"><div className="cctv-beam" /><div className="camera-body" /><div className="camera-bracket" /></div>
+        </div>
+        <div className="cctv cctv-right">
+          <div className="cctv-status">SAFE-ZONE 02</div>
+          <div className="cctv-pole" />
+          <div className="cctv-head"><div className="cctv-beam" /><div className="camera-body" /><div className="camera-bracket" /></div>
+        </div>
+      </div>
+      <div className="patrol-beam" />
+      <div className="patrol-dot" />
+      <div className="skyline-wrap">
+        <svg className="skyline" viewBox="0 0 1200 260" preserveAspectRatio="none">
+          {ordered.map((b, bi) => {
+            const y = 260 - b.h;
+            const cols = Math.max(2, Math.floor(b.w / 14));
+            const rows = Math.max(3, Math.floor(b.h / 18));
+            const padX = (b.w - cols * 8) / (cols + 1);
+            const padY = (b.h - rows * 10) / (rows + 1);
+            return (
+              <g key={`${b.x}-${b.h}`}>
+                <rect x={b.x} y={y} width={b.w} height={b.h} className={`bld-${b.layer}`} />
+                {b.spire && <rect x={b.x + b.w / 2 - 2} y={y - 26} width="4" height="26" className={`bld-${b.layer}`} />}
+                {b.flag && (
+                  <>
+                    <rect x={b.x + b.w / 2 - 1} y={y - 22} width="2" height="22" className={`bld-${b.layer}`} />
+                    <path d={`M${b.x + b.w / 2 + 1} ${y - 22} L${b.x + b.w / 2 + 15} ${y - 19} L${b.x + b.w / 2 + 1} ${y - 15} Z`} className="bld-near flag" />
+                  </>
+                )}
+                {b.layer !== "far" &&
+                  Array.from({ length: rows }).flatMap((_, r) =>
+                    Array.from({ length: cols }).map((__, c) => {
+                      const lit = (r + c + bi) % 3 !== 0;
+                      return (
+                        <rect
+                          key={`${r}-${c}`}
+                          x={b.x + padX + c * (8 + padX)}
+                          y={y + padY + r * (10 + padY)}
+                          width="6"
+                          height="7"
+                          rx="0.8"
+                          className={lit ? "window lit" : "window"}
+                          style={{ animationDelay: `${((r + c + bi) % 5) * 0.45}s` }}
+                        />
+                      );
+                    }),
+                  )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
   );
 }
 
@@ -474,6 +618,37 @@ function VerdictCard({ result, onListen }) {
           </div>
         )}
 
+        {result.guided_reporting && (
+          <div className="reporting-guidance">
+            <div className="section-header">
+              {t("guidedReporting", { defaultValue: "Guided NCRB Reporting" })}
+            </div>
+            <div className="reporting-guidance__priority">
+              {t("priority", { defaultValue: "Priority" })}: {result.guided_reporting.priority}
+            </div>
+            <ul className="reporting-guidance__actions">
+              {(result.guided_reporting.immediate_actions || []).slice(0, 3).map((action, i) => (
+                <li key={i}>{action}</li>
+              ))}
+            </ul>
+            <div className="reporting-guidance__channels">
+              {(result.guided_reporting.official_channels || []).map((channel, i) => (
+                <span key={i} className="reporting-channel">
+                  {channel.url ? (
+                    <a href={channel.url} target="_blank" rel="noreferrer">{channel.name}</a>
+                  ) : (
+                    <strong>{channel.name}</strong>
+                  )}
+                  {channel.phone && <b>{channel.phone}</b>}
+                </span>
+              ))}
+            </div>
+            {result.guided_reporting.note && (
+              <p className="reporting-guidance__note">{result.guided_reporting.note}</p>
+            )}
+          </div>
+        )}
+
         {/* Retrieved pattern matches */}
         {result.agent_results?.nlp?.retrieved_pattern_matches?.length > 0 && (
           <div style={{ marginTop: 12 }}>
@@ -651,7 +826,8 @@ function WelcomeScreen({ onDemoScam, onDemoBenign, onDemoImage }) {
       >
         {[
           "Kimi K2.5",
-          "Llama 4 Scout",
+          "GPT-OSS 120B",
+          "Qwen 3.6 Vision",
           "YOLOv8",
           "EfficientNet",
           "Grad-CAM",
@@ -697,6 +873,7 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [viewMode, setViewMode] = useState("analysis");
+  const [theme, setTheme] = useState(() => localStorage.getItem("shield_theme") || "light");
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const audioInputRef = useRef(null);
@@ -725,6 +902,10 @@ export default function App() {
     document.documentElement.lang = language;
     document.documentElement.dir = language === "ur" ? "rtl" : "ltr";
   }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem("shield_theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     const sessionId = crypto.randomUUID?.() || String(Date.now());
@@ -886,8 +1067,9 @@ export default function App() {
     window.speechSynthesis.cancel();
     const confidence = Math.round((result.confidence || 0) * 100);
     const reasoning = result.agent_results?.nlp?.reasoning || t("reviewGuidance");
+    const guidedActions = result.guided_reporting?.immediate_actions?.slice(0, 2).join(" ");
     const utterance = new SpeechSynthesisUtterance(
-      `${t(`riskLevels.${result.risk_level}`, { defaultValue: result.risk_level || t("unknown") })} ${t("risk")}, ${confidence} ${t("percentConfidence")}. ${reasoning}`,
+      `${t(`riskLevels.${result.risk_level}`, { defaultValue: result.risk_level || t("unknown") })} ${t("risk")}, ${confidence} ${t("percentConfidence")}. ${reasoning} ${guidedActions || ""}`,
     );
     utterance.lang = language;
     window.speechSynthesis.speak(utterance);
@@ -901,12 +1083,15 @@ export default function App() {
   };
 
   return (
-    <div className="app">
+    <div className="app skyline-stage" data-theme={theme}>
+      <SkylineBackdrop />
       <Header
         systemStatus={systemStatus}
         liveStatus={liveStatus}
         user={user}
         language={language}
+        theme={theme}
+        onThemeToggle={() => setTheme((current) => current === "dark" ? "light" : "dark")}
         onLanguageChange={changeLanguage}
         onShowLogin={() => setDialogMode("login")}
         onShowRegister={() => setDialogMode("register")}

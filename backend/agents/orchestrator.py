@@ -29,6 +29,7 @@ from agents.graph_agent import GraphAgent, get_graph_agent
 from agents.calibration import CalibrationLayer, get_calibration_layer
 from agents.ensemble import get_xgboost_fusion
 from config import config
+from intelligence import reporting_guidance
 
 logger = logging.getLogger(__name__)
 
@@ -739,11 +740,13 @@ class FusionOrchestrator:
         if final_state.get("graph_result"):
             agent_results["graph"] = final_state["graph_result"]
 
+        risk_level = final_state.get("risk_level", "unknown")
         return {
             "verdict": final_state.get("verdict", "unknown"),
             "confidence": round(final_state.get("calibrated_score", 0.5), 4),
-            "risk_level": final_state.get("risk_level", "unknown"),
+            "risk_level": risk_level,
             "response_language": final_state.get("response_language", language),
+            "guided_reporting": reporting_guidance(risk_level),
             "agent_results": agent_results,
             "agent_visualizations": {
                 "attention_map": (final_state.get("vision_result") or {}).get("attention_map_base64"),

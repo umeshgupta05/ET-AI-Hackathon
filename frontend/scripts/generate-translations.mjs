@@ -64,7 +64,7 @@ async function translateChunk(locale, language, source, chunkNumber) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: "openai/gpt-oss-20b",
         temperature: 0.1,
         max_tokens: 2500,
         response_format: { type: "json_object" },

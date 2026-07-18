@@ -19,14 +19,14 @@
   align-items: center;
   gap: 10px;
   padding: 14px 16px;
-  background: var(--ink-850);
-  border: 1px solid var(--hairline);
-  border-radius: 2px;
-  transition: border-color 0.2s;
+  background: #fff;
+  border: 1px solid #e5e2dd;
+  border-radius: 8px;
+  transition: box-shadow 0.2s;
 }
 
 .cc-stat:hover {
-  border-color: var(--brand-teal);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
 .stat-icon.critical { color: #dc2626; }
@@ -81,21 +81,22 @@
 }
 
 .cc-tab:hover {
-  color: var(--text-primary);
-  background: rgba(19, 25, 38, 0.5);
+  color: #1a1715;
+  background: rgba(255,255,255,0.6);
 }
 
 .cc-tab.active {
-  background: var(--ink-750);
-  color: var(--brand-teal);
+  background: #fff;
+  color: #ea580c;
   font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 
 /* Panel */
 .cc-panel {
-  background: var(--ink-850);
-  border: 1px solid var(--hairline);
-  border-radius: 2px;
+  background: #fff;
+  border: 1px solid #e5e2dd;
+  border-radius: 8px;
   padding: 24px;
 }
 
@@ -169,30 +170,30 @@
 
 .cc-threat-card {
   padding: 16px 20px;
-  border: 1px solid var(--hairline);
-  border-radius: 2px;
-  background: var(--ink-750);
+  border: 1px solid #e5e2dd;
+  border-radius: 8px;
+  background: #fafaf8;
   border-left: 4px solid #94a3b8;
-  transition: border-color 0.2s;
+  transition: box-shadow 0.2s;
 }
 
 .cc-threat-card:hover {
-  border-color: var(--brand-teal);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
 .cc-threat-card.trend-surging {
   border-left-color: #dc2626;
-  background: rgba(214, 69, 69, 0.1);
+  background: #fef2f2;
 }
 
 .cc-threat-card.trend-rising {
   border-left-color: #ea580c;
-  background: rgba(214, 154, 60, 0.1);
+  background: #fff7ed;
 }
 
 .cc-threat-card.trend-declining {
   border-left-color: #16a34a;
-  background: rgba(63, 163, 126, 0.1);
+  background: #f0fdf4;
 }
 
 .threat-header {

@@ -22,13 +22,28 @@ def main() -> None:
     assert attempts == [
         (LLMProvider.OPENROUTER, config.openrouter.reasoning_model),
         (LLMProvider.OPENROUTER, "moonshotai/kimi-k2.6:free"),
-        (LLMProvider.GROQ, config.groq.primary_model),
+        (LLMProvider.GROQ, config.groq.reasoning_model),
     ]
     multimodal_attempts = client._get_model_attempts(LLMRole.MULTIMODAL)
     assert multimodal_attempts[1] == (
         LLMProvider.OPENROUTER,
         "moonshotai/kimi-k2.6:free",
     )
+    assert multimodal_attempts[2] == (
+        LLMProvider.GROQ,
+        config.groq.multimodal_model,
+    )
+    routing_attempts = client._get_model_attempts(LLMRole.ROUTING)
+    assert routing_attempts == [
+        (LLMProvider.OPENROUTER, config.openrouter.reasoning_model),
+        (LLMProvider.OPENROUTER, "moonshotai/kimi-k2.6:free"),
+        (LLMProvider.GROQ, config.groq.primary_model),
+    ]
+    fast_attempts = client._get_model_attempts(LLMRole.FAST)
+    assert fast_attempts == [
+        (LLMProvider.GROQ, config.groq.fast_model),
+        (LLMProvider.OPENROUTER, config.openrouter.free_router),
+    ]
     print("Kimi K2.5 -> Kimi K2.6 free -> Groq fallback chain: PASS")
 
 
