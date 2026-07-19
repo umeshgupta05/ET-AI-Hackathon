@@ -9,6 +9,14 @@ flowchart LR
     RMQ --> Worker[Analysis Worker]
     Worker --> LG
     API --> Redis[Redis Atomic Rate Limits]
+    API --> Ingest[Authorized Feed Ingest APIs]
+    API --> Poll[Scheduled HTTPS Feed Pollers]
+    Poll --> Ingest
+    Ingest --> Ops[(Operational Intelligence Store)]
+    Ops --> Geo
+    Ops --> G
+    API --> Obj[External Evidence Store]
+    API --> OTel[OpenTelemetry Exporter]
     MCP[Trusted MCP stdio Adapter: Tools + Resources + Prompt] --> API
     API --> LG[LangGraph Orchestrator]
     LG --> V[Vision Agent\nYOLO + EfficientNet + CLIP + Forensics]
@@ -22,9 +30,14 @@ flowchart LR
     F --> C[Probability Calibration]
     C --> D[Explainable Verdict + Trace]
     D --> E[SHA-256 Evidence Package]
-    D --> R[1930 / NCRP Reporting Guidance]
+    D --> R[1930 / NCRP Reporting Guidance + Authorized Reporting Bridge]
     API --> Geo[Geospatial Hotspot Intelligence]
     API <--> WS[Realtime WebSocket Session]
+    WS --> RT[Call Flow + Spoof + Video + Payment Signal Engine]
+    RT --> AO[(Signed Alert Outbox)]
+    AO --> Citizen[Citizen Alert Adapter]
+    AO --> Telecom[Telecom Alert Adapter]
+    AO --> MHA[MHA Alert Adapter]
 ```
 
 ## Deployment Boundaries
@@ -35,7 +48,14 @@ flowchart LR
 - Redis is optional and does not duplicate RabbitMQ. It holds only SHA-256-keyed, expiring counters for shared login and inference rate limits; no analysis payloads or results are cached.
 - MCP runs as a separate stdio adapter and calls authenticated HTTP routes, preserving the API's ownership and audit boundary. It exposes annotated tools, read-only resources, and a human-reviewed triage prompt; queued tools use the same RabbitMQ job API.
 - Every saved verdict receives a SHA-256 integrity record. Evidence exports add custody, model trace, fusion details, and an explicit human-review disclosure.
-- Production deployment should replace SQLite with managed PostgreSQL, use managed Redis/RabbitMQ with TLS and credential rotation, terminate TLS at an API gateway, use a secrets manager, add redacted OpenTelemetry, and ingest only authorized government, bank, and telecom feeds.
+- Production mode is explicit: `DEPLOYMENT_MODE=production` blocks demo graph/geospatial/demo transcript endpoints unless real operational feed records are ingested or demo mode is intentionally allowed.
+- Authorized feed APIs ingest geospatial incidents, graph entities/edges, normalized fraud-network events, and certified currency specimen metadata behind `SHIELD_INGEST_TOKEN`.
+- Ingested data carries a mandatory trust tier: `synthetic_sandbox`, `public_research`, or `authorized`. Sandbox/public rows exercise the real pipeline but cannot satisfy strict production gates.
+- Evidence can be mirrored to an external `file://` mount or encrypted S3-compatible object store. Official reporting can submit to a configured authorized bridge URL; otherwise the system creates an integrity-hashed draft for human review.
+- Real-time sessions retain cumulative transcript decisions and hashed identifiers. Structured caller attestation, spoof, video-identity, payment, secrecy, and urgency signals feed a signed, retryable alert outbox.
+- Twilio channel endpoints support provider signature validation; remote media is restricted to an explicit host allowlist.
+- GAT inference includes a score-collapse/distribution-shift gate. Degraded graphs use evidence-derived anomaly scores and expose the fallback in `model_quality`.
+- Production deployment should replace SQLite with managed PostgreSQL, use managed Redis/RabbitMQ with TLS and credential rotation, terminate TLS at an API gateway, use a secrets manager, use redacted OpenTelemetry, and ingest only authorized government, bank, and telecom feeds.
 
 ## Privacy and Safety
 

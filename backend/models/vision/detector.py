@@ -7,6 +7,7 @@ for downstream forgery classification.
 """
 
 import logging
+import os
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
@@ -40,6 +41,8 @@ class CurrencyDetector:
     def __init__(self):
         self._model = None
         self._initialized = False
+        self._currency_trained = False
+        self._model_path = "yolov8n.pt"
 
     async def initialize(self) -> None:
         """Load YOLOv8 model."""
@@ -50,9 +53,22 @@ class CurrencyDetector:
         try:
             from ultralytics import YOLO
 
-            self._model = YOLO("yolov8n.pt")
+            configured = os.getenv("CURRENCY_YOLO_MODEL_PATH", "").strip()
+            self._model_path = configured or "yolov8n.pt"
+            self._model = YOLO(self._model_path)
+            names = {
+                str(name).lower()
+                for name in getattr(self._model, "names", {}).values()
+            }
+            self._currency_trained = bool(
+                configured and names.intersection({"currency", "banknote", "note", "indian_currency"})
+            )
             self._initialized = True
-            logger.info(" YOLOv8n loaded successfully")
+            logger.info(
+                " YOLO detector loaded (%s, currency-trained=%s)",
+                self._model_path,
+                self._currency_trained,
+            )
         except Exception as e:
             logger.error(f"Failed to initialize YOLOv8: {e}")
             raise
@@ -69,6 +85,8 @@ class CurrencyDetector:
             "note_crop": None,
             "regions": {},
             "note_dimensions": None,
+            "geometric_candidate": False,
+            "detector_type": "currency_yolo" if self._currency_trained else "geometry_fallback",
         }
 
         note_crop = None
@@ -80,7 +98,9 @@ class CurrencyDetector:
             verbose=False,
         )
 
-        if detections and len(detections[0].boxes) > 0:
+        # A generic COCO YOLO model has no banknote class. Its boxes must never
+        # be treated as proof that an arbitrary object is currency.
+        if self._currency_trained and detections and len(detections[0].boxes) > 0:
             best_area = 0
             for box in detections[0].boxes:
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
@@ -89,6 +109,7 @@ class CurrencyDetector:
                 if area > best_area:
                     best_area = area
                     best_confidence = conf
+                    result["geometric_candidate"] = True
                     result["note_bbox"] = [int(x1), int(y1), int(x2), int(y2)]
                     note_crop = image[int(y1) : int(y2), int(x1) : int(x2)]
 
@@ -97,13 +118,14 @@ class CurrencyDetector:
             if note_crop is not None:
                 result["note_bbox"] = bbox
                 best_confidence = 0.7
+                result["geometric_candidate"] = True
 
         if note_crop is None:
             note_crop = image.copy()
-            best_confidence = 0.3
+            best_confidence = 0.0
             result["note_bbox"] = [0, 0, image.shape[1], image.shape[0]]
 
-        result["detected"] = True
+        result["detected"] = bool(self._currency_trained and best_confidence > 0) or result["geometric_candidate"]
         result["confidence"] = round(best_confidence, 4)
         result["note_crop"] = note_crop
         result["note_dimensions"] = {
@@ -211,6 +233,8 @@ class CurrencyDetector:
         return {
             "status": "ready" if self._initialized else "not_initialized",
             "model": "YOLOv8n (ultralytics)",
+            "model_path": self._model_path,
+            "currency_trained": self._currency_trained,
             "regions": list(CURRENCY_REGIONS.keys()),
         }
 

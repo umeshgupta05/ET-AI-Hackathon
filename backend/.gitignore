@@ -21,6 +21,8 @@ data/*.db
 data/*.sqlite*
 runtime/
 data/data/
+data/public_sources/
+data/sandbox_manifest.json
 data/training/currency/genuine/*
 data/training/currency/counterfeit/*
 data/training/currency/.download_staging/

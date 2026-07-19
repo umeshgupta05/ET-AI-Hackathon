@@ -5,11 +5,13 @@ ET AI Hackathon 2026, Problem Statement 6. This repository contains a working mu
 ## Capabilities
 
 - Digital-arrest, impersonation, OTP/KYC, parcel, investment, and financial scam analysis.
+- Persistent real-time call sessions that combine accumulated call flow with caller verification, STIR/SHAKEN attestation, spoof-risk, video identity, payment pressure, and secrecy/urgency signals. High-risk events create signed, idempotent citizen/telecom/MHA alert records before transfer.
 - Currency-image screening with YOLO localization, EfficientNet/Transformer classification, CLIP, ELA, FFT, NPR, and Grad-CAM.
+- Dedicated front/back/UV currency inspection for INR 10, 20, 50, 100, 200, 500, and 2000, including non-currency rejection and explicit microprint, thread, serial, watermark, and UV capture results.
 - Audio transcription and spoof-risk signals with Whisper and WavLM/AASIST-style analysis.
 - Hybrid BM25 + dense RAG with cross-encoder reranking.
 - LangGraph agent routing, traceable fusion, calibration, and modality-gated XGBoost fallback.
-- Fraud-network analysis with a Graph Attention Network and community/centrality signals.
+- Fraud-network analysis with a Graph Attention Network, community/centrality signals, and an automatic distribution-shift gate that suppresses collapsed GAT outputs in favor of evidence-based anomaly scoring.
 - **Threat Intelligence Command Centre** — interactive geospatial heatmap (Leaflet), D3 force-directed fraud network graph, predictive threat feed, and AI model benchmark dashboard.
 - **Real-time analytics** — every analysis is tracked; Command Centre stats update live (auto-refresh every 10 seconds). The map remains explicitly labelled as demonstration intelligence until authorized feeds are connected.
 - **False-positive reduction** — `needs_review` intermediate verdict tier prevents borderline cases from triggering false alarms.
@@ -20,6 +22,16 @@ ET AI Hackathon 2026, Problem Statement 6. This repository contains a working mu
 - Optional MCP stdio analyst adapter with tools, resources, prompts, case evidence, and queued analysis.
 
 This is a research prototype. It does not automatically file police complaints, certify banknotes, replace a forensic examiner, or claim production accuracy.
+
+## Problem-Statement Flows
+
+| Example capability | Working interface | External dependency boundary |
+|---|---|---|
+| Real-time digital-arrest detection | `POST /api/realtime/sessions`, event/audio endpoints, and `/ws/session/{id}` | Telecom/MHA delivery URLs and provider verification credentials are required for external delivery |
+| Counterfeit currency field screening | `POST /api/analyze/image` and `POST /api/currency/inspect` | RBI/bank/lab specimens and calibrated UV/IR hardware are required for certification |
+| Fraud-network intelligence | Operational entity/edge/event ingestion, GAT, anomaly fallback, D3 graph | Authorized bank transaction/CDR/device feeds are required for live intelligence |
+| Geospatial command centre | Hotspots, feed pollers, patrol/resource plan, inter-district sharing | Authorized NCRB/state feeds are required for operational deployment |
+| Citizen multi-channel shield | React app, WhatsApp media/text, IVR speech/DTMF, 12 languages, reporting workflow | Public provider numbers, signed webhooks, and an authorized reporting bridge require credentials |
 
 ## Repository Layout
 
@@ -98,6 +110,32 @@ RabbitMQ and Redis have distinct jobs and are not interchangeable:
 | Redis | Atomic shared rate limits across API processes | Hashed identifiers and expiring counters only | No |
 | SQLite | Prototype users, cases, and durable job/result records | Owner-scoped application data | Yes for current prototype auth/history |
 
+### No-login hackathon bootstrap
+
+The following command prepares every local component that does not require an
+external account or institutional agreement. It downloads the real UCI SMS
+Spam Collection (CC BY 4.0), records checksums and provenance, seeds a 60-node
+and 90-edge privacy-safe sandbox fraud graph, seeds 12 sandbox geospatial
+scenarios, and adds missing local-only secrets/service URLs to the Git-ignored
+`backend/.env`:
+
+```powershell
+python backend\data\scripts\bootstrap_hackathon_sandbox.py --configure-env
+docker compose up -d rabbitmq redis
+```
+
+Downloaded files, the sandbox manifest, SQLite runtime data, and secrets remain
+Git-ignored. Every seeded record is marked `synthetic_sandbox`; public corpus
+rows are marked `public_research`. Only records explicitly marked `authorized`
+can unlock strict production intelligence gates. This lets the complete ingest,
+graph, geospatial, queue, reporting-draft, and UI flows run for judges without
+misrepresenting sandbox data as NCRB, bank, telecom, or RBI evidence.
+
+The UCI corpus is auxiliary real-SMS spam research data, not automatically
+relabelled as digital-arrest fraud. Its source manifest is generated under
+`backend/data/public_sources/uci_sms_spam_collection/` with DOI, licence, source
+URL, record count, and SHA-256 hashes.
+
 Start both optional services with `docker compose up -d rabbitmq redis`. The compose defaults are development credentials; set `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, and `REDIS_PASSWORD` in a root-level untracked `.env` before shared deployment.
 
 ### Durable RabbitMQ Jobs
@@ -124,7 +162,7 @@ Enable Redis in `backend/.env`:
 
 ```dotenv
 REDIS_ENABLED=true
-REDIS_URL=redis://:change-me@localhost:6379/0
+REDIS_URL=redis://:change-me@localhost:16379/0
 REDIS_MAX_CONNECTIONS=20
 LOGIN_RATE_LIMIT=8
 LOGIN_RATE_WINDOW_SECONDS=300
@@ -151,7 +189,57 @@ For local demos the channel webhooks work without a shared token. For public tun
 MULTICHANNEL_WEBHOOK_TOKEN=your-random-channel-secret
 ```
 
-Then configure the provider to send either `X-Shield-Channel-Token: your-random-channel-secret` or append `?token=your-random-channel-secret` to the webhook URL. The webhooks return risk guidance and NCRP/1930 advice; they do not file official complaints automatically. Media sent to WhatsApp is acknowledged and preserved-by-user guidance is returned, while full image/audio analysis remains in the app upload flow unless an authorized provider media-download integration is added.
+Then configure the provider to send either `X-Shield-Channel-Token: your-random-channel-secret` or append `?token=your-random-channel-secret` to the webhook URL. The webhooks return risk guidance and NCRP/1930 advice. If `WHATSAPP_MEDIA_INTEGRATION=true` plus `WHATSAPP_MEDIA_BEARER_TOKEN` or Twilio credentials are configured, provider-hosted image/audio media is downloaded and analyzed through the same multimodal orchestrator; otherwise media is acknowledged with preservation guidance.
+
+For Twilio production webhooks use `CHANNEL_WEBHOOK_PROVIDER=twilio`, set `TWILIO_AUTH_TOKEN`, and set `TWILIO_WEBHOOK_BASE_URL` to the exact public HTTPS origin. The backend validates `X-Twilio-Signature` against the full URL and sorted form fields. Media downloads are restricted by `WHATSAPP_MEDIA_ALLOWED_HOSTS`.
+
+### Real-time intervention
+
+Create a session, then submit transcript events or audio chunks. Risk is recalculated over the accumulated call, not just the latest sentence:
+
+```powershell
+$session = Invoke-RestMethod http://localhost:8000/api/realtime/sessions `
+  -Method Post -ContentType application/json `
+  -Body '{"channel":"web","language":"en"}'
+
+Invoke-RestMethod "http://localhost:8000/api/realtime/sessions/$($session.session_id)/events" `
+  -Method Post -ContentType application/json `
+  -Body '{"transcript":"Transfer now or you will be arrested","caller_verification":"failed","payment_requested":true,"secrecy_requested":true,"urgency_seconds":300}'
+```
+
+Caller/account identifiers are stored only as keyed hashes. At the configured threshold, the service writes citizen, telecom, and MHA alerts to a persistent outbox with evidence hashes and idempotency keys. A destination remains `pending_integration` until its real webhook is configured; the application never reports a fake delivery.
+
+## Production Integration Mode
+
+Set `DEPLOYMENT_MODE=production` to disable demo intelligence unless real feed records have been ingested. The readiness endpoint returns `503` until required production checks are satisfied:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/readiness
+```
+
+Operational feed ingestion is protected by `SHIELD_INGEST_TOKEN`:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/integrations/geospatial/incidents` | Ingest authorized NCRB/state/bank/telecom hotspot records |
+| `POST /api/integrations/graph/entities` | Ingest phone/account/device/report entities |
+| `POST /api/integrations/graph/edges` | Ingest relationships such as call, transfer, owns, associated |
+| `POST /api/integrations/fraud-network/events` | Normalize bank/telecom/device events into graph entities and edges |
+| `POST /api/integrations/currency/certified-specimens` | Ingest RBI/bank/lab-certified currency specimen metadata |
+| `GET /api/integrations/status` | Show feed counts and production-readiness blockers |
+| `GET /api/feeds/status` | Show scheduled connector health and last successful poll |
+| `POST /api/feeds/poll` | Authenticated, token-protected on-demand feed synchronization |
+
+Guided reporting now has two levels:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/reporting/cases/{case_id}/draft` | Build an integrity-hashed NCRP/official-reporting draft for human review |
+| `POST /api/reporting/cases/{case_id}/submit` | Submit the draft to `OFFICIAL_REPORTING_API_URL` when an authorized bridge is configured |
+
+Evidence can be mirrored outside SQLite with `EVIDENCE_STORE_URL=file://D:/secure-shield-evidence` or an encrypted S3-compatible target such as `s3://shield-evidence/cases`. S3 objects include SHA-256 metadata and support AES-256 or KMS encryption. OpenTelemetry is enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+
+Authorized feeds can be polled on a schedule by setting `FEED_POLLING_ENABLED=true`, the four feed URLs/tokens, and `FEED_POLL_INTERVAL_SECONDS`. Production mode requires HTTPS. JSON responses may contain `geospatial_incidents`, `graph_entities`, and `graph_edges`; every imported record is tagged `authorized` with source provenance.
 
 ## Optional MCP Adapter
 
@@ -203,6 +291,8 @@ python backend\data\scripts\generate_text_dataset.py
 
 Synthetic pattern images were removed. The preparation script selectively downloads a balanced subset of the publisher-labelled Indian Currency Real vs Fake Notes Dataset, validates dimensions/readability, rejects exact duplicates, and records SHA-256/provenance in `source_manifest.json`.
 
+The installed research source currently lacks a verified INR 200 training stratum. The API accepts INR 200 captures and records the coverage gap, but it must not claim denomination-specific validation until certified examples are installed. RGB images never receive a fabricated UV result; UV is `not_captured` unless a separate UV capture is supplied.
+
 1. Put Kaggle credentials at `%USERPROFILE%\.kaggle\kaggle.json`.
 2. Run:
 
@@ -248,9 +338,7 @@ Training metadata is saved beside each model. Large weights are intentionally ig
 With the backend running:
 
 ```powershell
-python backend\_test_ml_contracts.py
-python backend\_test_operational.py
-python backend\_test_langgraph.py
+python -m pytest backend\tests -q
 python backend\_test_e2e.py
 ```
 
@@ -261,12 +349,6 @@ cd frontend
 npm run lint
 npm run i18n:check
 npm run build
-```
-
-Live analytics end-to-end test (requires running backend):
-
-```powershell
-python backend\_test_live_analytics.py
 ```
 
 RabbitMQ, Redis, and MCP integration checks:
@@ -294,6 +376,11 @@ Set `SHIELD_API_TOKEN` before the MCP test to additionally verify MCP -> API -> 
 | `POST /api/analyze/turns` | Turn-by-turn risk trajectory |
 | `POST /api/jobs/analyze/text` | Authenticated durable text-job submission (optional RabbitMQ) |
 | `GET /api/jobs/{job_id}` | Owner-scoped asynchronous job status/result |
+| `GET /api/readiness` | Production readiness gate and blocker list |
+| `GET /api/integrations/status` | Operational feed counts and integration status |
+| `POST /api/integrations/*` | Token-protected authorized feed ingestion |
+| `POST /api/reporting/cases/{case_id}/draft` | Human-reviewed official-report draft |
+| `POST /api/reporting/cases/{case_id}/submit` | Submit to configured official reporting bridge |
 | `GET /api/graph/analyze` | Fraud-network analysis |
 | `GET /api/graph/visualization` | Graph visualization payload |
 | `GET /api/intelligence/threat-feed` | **Real-time** threat intelligence (live analytics from actual system analyses) |
@@ -313,6 +400,8 @@ The Command Centre provides a unified threat intelligence dashboard accessible v
 | **Fraud Network Graph** | D3 force-directed simulation | `/api/graph/visualization` — current local GAT demonstration graph |
 | **Live Threat Feed** | Auto-refresh every 10s | `/api/intelligence/threat-feed` — real-time from `analytics.py` tracker |
 | **AI Benchmarks** | Visual progress bars | `/api/benchmarks` — precision, recall, F1, FP rate per model |
+
+In `DEPLOYMENT_MODE=production`, geospatial and graph endpoints do not serve demo intelligence. They require operational records ingested through the token-protected integration APIs, or they return a production-readiness error.
 
 ### Real-Time Analytics
 
@@ -344,8 +433,9 @@ The `needs_review` tier prevents borderline cases (0.30–0.45) from triggering 
 
 - Text training data is curated/template-generated; the separate Chakravyuh benchmark is test-only and never used for training.
 - Currency training uses 510 validated, deduplicated publisher-labelled research images in the current local preparation.
+- Token-protected certified currency specimen metadata can be ingested for production reference; without it, image verdicts explicitly remain screening-only.
 - Fixed UI text has complete checked-in coverage for 12 languages; Kimi generates explanations, indicators, and recommendations in the selected language at analysis time, with localized deterministic fallbacks.
-- The graph is a 69-node demonstration network, not live law-enforcement intelligence.
+- The graph uses authorized ingested entities/edges when present; the 69-node demonstration network is fallback data and is blocked in strict production mode.
 - CLIP and XGBoost load lazily or fall back safely when artifacts are unavailable.
 - Current grouped currency validation: 93.9% accuracy, 93.5% F1, and 0.984 ROC-AUC. These are research-split metrics, not currency-certification accuracy.
 - Current Chakravyuh test-only text result: 0.853 ROC-AUC, 0.746 F1, 95.7% precision, 61.1% recall, and 12.9% false-positive rate (4/31 benign) across 175 scenarios at the action threshold. Top category scores include OTP theft (F1: 0.957) and KYC fraud (F1: 0.902). The `needs_review` tier captures 8 borderline cases (7 scam, 1 benign). Regional-language subsets are too small for language-level claims.
@@ -354,9 +444,9 @@ The `needs_review` tier prevents borderline cases (0.30–0.45) from triggering 
 
 ## Evaluated Production Additions
 
-- **OpenTelemetry:** relevant next step for API, worker, hosted-model, RabbitMQ, and Redis traces/metrics. It is not enabled because exporter, collector, sampling, and PII-redaction policies must be chosen together.
+- **OpenTelemetry:** optional FastAPI instrumentation is wired and enabled by `OTEL_EXPORTER_OTLP_ENDPOINT`; production teams must still run a redacted collector and sampling policy.
 - **PostgreSQL:** recommended replacement for SQLite when API and workers run on multiple hosts. Redis is intentionally not used as the durable case database.
-- **Object storage:** appropriate for encrypted media/evidence retention only after retention, consent, access-control, and deletion policies are defined. Uploads currently stay in memory.
+- **Object storage:** evidence JSON can be mirrored to `EVIDENCE_STORE_URL=file://...`; media uploads are still processed in memory unless a governed media retention backend is configured.
 - **Kafka, Celery, and another vector database:** not added. RabbitMQ already handles work delivery, the worker has explicit ownership/lease semantics, and ChromaDB plus BM25 already serves prototype RAG.
 - **Remote MCP over HTTP:** not added. Local stdio minimizes exposure; remote use would require OAuth 2.1 scopes, TLS, consent UI, and per-tool authorization.
 

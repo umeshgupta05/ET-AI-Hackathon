@@ -7,7 +7,7 @@ BASE = "http://localhost:8000"
 
 def test(name, method, url, **kwargs):
     try:
-        r = getattr(requests, method)(url, timeout=30, **kwargs)
+        r = getattr(requests, method)(url, timeout=90, **kwargs)
         status = r.status_code
         try:
             data = r.json()
@@ -89,6 +89,37 @@ if data:
     print(f"    High-risk nodes: {len(data.get('high_risk_nodes',[]))}")
 
 test("Graph Visualization", "get", f"{BASE}/api/graph/visualization")
+
+# 7. Realtime call flow and pre-transfer alerting
+print("\n--- Realtime Intervention ---")
+session = test("Start Realtime Session", "post", f"{BASE}/api/realtime/sessions", json={
+    "channel": "web", "language": "en", "metadata": {"test": "e2e"}
+})
+if session:
+    event = test("High-risk Call Event", "post", f"{BASE}/api/realtime/sessions/{session['session_id']}/events", json={
+        "transcript": "This is CBI. Do not tell anyone. Transfer money within five minutes or you will be arrested.",
+        "caller_verification": "failed",
+        "stir_shaken_attestation": "failed",
+        "spoof_risk": 0.9,
+        "claimed_authority": "CBI",
+        "payment_requested": True,
+        "secrecy_requested": True,
+        "urgency_seconds": 300,
+    })
+    if event:
+        assert event["pre_transfer_intervention"] is True
+        assert {alert["destination"] for alert in event["alerts"]} == {"citizen", "telecom", "mha"}
+        print(f"    Combined risk: {event['event']['combined_score']}")
+        print(f"    Alert states: {[alert['status'] for alert in event['alerts']]}")
+    test("Close Realtime Session", "post", f"{BASE}/api/realtime/sessions/{session['session_id']}/close")
+
+# 8. Operational interfaces
+print("\n--- Operational Interfaces ---")
+test("Channel Capabilities", "get", f"{BASE}/api/channels")
+test("Hotspot Intelligence", "get", f"{BASE}/api/intelligence/hotspots")
+test("Command Centre", "get", f"{BASE}/api/intelligence/command-centre")
+test("Feed Connector Status", "get", f"{BASE}/api/feeds/status")
+test("Production Readiness", "get", f"{BASE}/api/readiness")
 
 print("\n" + "=" * 60)
 print("AUDIT COMPLETE")

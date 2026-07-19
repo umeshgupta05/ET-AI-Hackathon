@@ -7,6 +7,7 @@
  * 3. Predictive Threat Feed with trend indicators
  */
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import * as d3 from "d3";
 import {
@@ -145,6 +146,7 @@ function ForceGraph({ data }) {
 
 /* ── Main Component ── */
 export default function CommandCentre() {
+  const { t } = useTranslation();
   const [threatFeed, setThreatFeed] = useState(null);
   const [commandData, setCommandData] = useState(null);
   const [benchmarks, setBenchmarks] = useState(null);
@@ -187,7 +189,7 @@ export default function CommandCentre() {
     return (
       <div className="cc-loading">
         <Activity size={32} className="spin" />
-        <p>Loading Threat Intelligence...</p>
+        <p>{t("commandCentre.loading")}</p>
       </div>
     );
   }
@@ -203,41 +205,41 @@ export default function CommandCentre() {
           <Activity size={18} className="stat-icon warning" />
           <div>
             <span className="stat-value">{summary.total_analyses || 0}</span>
-            <span className="stat-label">Total Analyses</span>
+            <span className="stat-label">{t("commandCentre.totalAnalyses")}</span>
           </div>
         </div>
         <div className="cc-stat">
           <BarChart3 size={18} className="stat-icon info" />
           <div>
             <span className="stat-value">{summary.analyses_24h || 0}</span>
-            <span className="stat-label">Analyses (24h)</span>
+            <span className="stat-label">{t("commandCentre.analyses24h")}</span>
           </div>
         </div>
         <div className="cc-stat">
           <AlertTriangle size={18} className="stat-icon critical" />
           <div>
             <span className="stat-value">{summary.threats_detected_24h || 0}</span>
-            <span className="stat-label">Threats Detected</span>
+            <span className="stat-label">{t("commandCentre.threatsDetected")}</span>
           </div>
         </div>
         <div className="cc-stat">
           <Shield size={18} className="stat-icon success" />
           <div>
             <span className="stat-value">{summary.safe_cleared_24h || 0}</span>
-            <span className="stat-label">Cleared Safe</span>
+            <span className="stat-label">{t("commandCentre.clearedSafe")}</span>
           </div>
         </div>
         <div className="cc-stat">
           <Network size={18} className="stat-icon danger" />
           <div>
             <span className="stat-value">{summary.active_patterns || 0}</span>
-            <span className="stat-label">Scam Patterns</span>
+            <span className="stat-label">{t("commandCentre.scamPatterns")}</span>
           </div>
         </div>
         {threatFeed?.is_live && (
           <div className="cc-stat cc-live-indicator">
             <span className="live-dot" />
-            <span className="stat-label">LIVE</span>
+            <span className="stat-label">{t("live")}</span>
           </div>
         )}
       </div>
@@ -245,16 +247,16 @@ export default function CommandCentre() {
       {/* ── Tab Navigation ── */}
       <div className="cc-tabs">
         <button className={activeTab === "map" ? "cc-tab active" : "cc-tab"} onClick={() => setActiveTab("map")}>
-          <Globe size={16} /> Geospatial Intelligence
+          <Globe size={16} /> {t("commandCentre.geospatialTab")}
         </button>
         <button className={activeTab === "graph" ? "cc-tab active" : "cc-tab"} onClick={() => setActiveTab("graph")}>
-          <Network size={16} /> Fraud Network Graph
+          <Network size={16} /> {t("commandCentre.graphTab")}
         </button>
         <button className={activeTab === "threats" ? "cc-tab active" : "cc-tab"} onClick={() => setActiveTab("threats")}>
-          <AlertTriangle size={16} /> Threat Feed
+          <AlertTriangle size={16} /> {t("commandCentre.threatFeedTab")}
         </button>
         <button className={activeTab === "metrics" ? "cc-tab active" : "cc-tab"} onClick={() => setActiveTab("metrics")}>
-          <BarChart3 size={16} /> AI Benchmarks
+          <BarChart3 size={16} /> {t("commandCentre.benchmarksTab")}
         </button>
       </div>
 
@@ -262,9 +264,9 @@ export default function CommandCentre() {
       <div className="cc-content">
         {activeTab === "map" && (
           <div className="cc-panel">
-            <h3>Crime Hotspot Intelligence — India</h3>
+            <h3>{t("commandCentre.hotspotTitle")}</h3>
             <p className="cc-subtitle">
-              {commandData?.geospatial?.source || "Reference intelligence feed"}. {commandData?.geospatial?.limitations}
+              {commandData?.geospatial?.source || t("commandCentre.referenceFeed")}. {commandData?.geospatial?.limitations}
             </p>
             <div className="cc-map-container">
               <MapContainer center={[22.5, 78.5]} zoom={5} style={{ height: 480, width: "100%", borderRadius: 8 }} scrollWheelZoom={true}>
@@ -288,13 +290,13 @@ export default function CommandCentre() {
                       <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13 }}>
                         <strong>{h.district}</strong>
                         <br />
-                        Type: {h.type.replace(/_/g, " ")}
+                        {t("commandCentre.type")}: {h.type.replace(/_/g, " ")}
                         <br />
-                        Reports: {h.reports}
+                        {t("commandCentre.reports")}: {h.reports}
                         <br />
-                        Severity: {(h.severity * 100).toFixed(0)}%
+                        {t("commandCentre.severity")}: {(h.severity * 100).toFixed(0)}%
                         <br />
-                        Risk Score: {(h.risk_score * 100).toFixed(0)}%
+                        {t("commandCentre.riskScore")}: {(h.risk_score * 100).toFixed(0)}%
                       </div>
                     </Popup>
                   </CircleMarker>
@@ -302,68 +304,67 @@ export default function CommandCentre() {
               </MapContainer>
             </div>
             <div className="cc-legend">
-              <span className="legend-item"><span className="legend-dot" style={{ background: "#dc2626" }} /> Critical (&gt;80%)</span>
-              <span className="legend-item"><span className="legend-dot" style={{ background: "#ea580c" }} /> High (60-80%)</span>
-              <span className="legend-item"><span className="legend-dot" style={{ background: "#eab308" }} /> Medium (40-60%)</span>
-              <span className="legend-item"><span className="legend-dot" style={{ background: "#16a34a" }} /> Low (&lt;40%)</span>
+              <span className="legend-item"><span className="legend-dot" style={{ background: "#dc2626" }} /> {t("commandCentre.criticalLegend")}</span>
+              <span className="legend-item"><span className="legend-dot" style={{ background: "#ea580c" }} /> {t("commandCentre.highLegend")}</span>
+              <span className="legend-item"><span className="legend-dot" style={{ background: "#eab308" }} /> {t("commandCentre.mediumLegend")}</span>
+              <span className="legend-item"><span className="legend-dot" style={{ background: "#16a34a" }} /> {t("commandCentre.lowLegend")}</span>
             </div>
           </div>
         )}
 
         {activeTab === "graph" && (
           <div className="cc-panel">
-            <h3>Fraud Network Intelligence</h3>
+            <h3>{t("commandCentre.graphTitle")}</h3>
             <p className="cc-subtitle">
-              {commandData?.network?.total_nodes ?? 0} entities, {commandData?.network?.total_edges ?? 0} connections
+              {commandData?.network?.total_nodes ?? 0} {t("commandCentre.entities")}, {commandData?.network?.total_edges ?? 0} {t("commandCentre.connections")}
             </p>
             <div className="cc-graph-container">
               {graphData ? (
                 <ForceGraph data={graphData} />
               ) : (
-                <div className="cc-empty">Graph data loading...</div>
+                <div className="cc-empty">{t("commandCentre.graphLoading")}</div>
               )}
             </div>
             <div className="cc-legend">
-              <span className="legend-item"><span className="legend-dot" style={{ background: "#dc2626" }} /> Scammer (High Risk)</span>
-              <span className="legend-item"><span className="legend-dot" style={{ background: "#ea580c" }} /> Money Mule</span>
-              <span className="legend-item"><span className="legend-dot" style={{ background: "#eab308" }} /> Victim</span>
-              <span className="legend-item"><span className="legend-dot" style={{ background: "#3b82f6" }} /> Entity (Bank/Phone)</span>
+              <span className="legend-item"><span className="legend-dot" style={{ background: "#dc2626" }} /> {t("commandCentre.scammer")}</span>
+              <span className="legend-item"><span className="legend-dot" style={{ background: "#ea580c" }} /> {t("commandCentre.moneyMule")}</span>
+              <span className="legend-item"><span className="legend-dot" style={{ background: "#eab308" }} /> {t("commandCentre.victim")}</span>
+              <span className="legend-item"><span className="legend-dot" style={{ background: "#3b82f6" }} /> {t("commandCentre.entity")}</span>
             </div>
           </div>
         )}
 
         {activeTab === "threats" && (
           <div className="cc-panel">
-            <h3>Live Threat Intelligence Feed</h3>
+            <h3>{t("commandCentre.threatFeedTitle")}</h3>
             <p className="cc-subtitle">
-              Real-time detections from system analyses — {summary.threats_detected_24h || 0} threats found,{" "}
-              {summary.active_patterns || 0} distinct scam patterns identified.
+              {t("commandCentre.threatSummary", { threats: summary.threats_detected_24h || 0, patterns: summary.active_patterns || 0 })}
             </p>
             {(threatFeed?.active_campaigns || []).length === 0 ? (
               <div className="cc-empty-state">
                 <Shield size={40} />
-                <h4>No threats detected yet</h4>
-                <p>Run analyses from the Fraud Analysis tab — detected patterns will appear here in real-time.</p>
+                <h4>{t("commandCentre.noThreats")}</h4>
+                <p>{t("commandCentre.noThreatsHint")}</p>
               </div>
             ) : (
               <div className="cc-threat-list">
-                {(threatFeed?.active_campaigns || []).map((t, i) => (
-                  <div key={i} className={`cc-threat-card ${trendClass(t.trend)}`}>
+                {(threatFeed?.active_campaigns || []).map((threat, i) => (
+                  <div key={i} className={`cc-threat-card ${trendClass(threat.trend)}`}>
                     <div className="threat-header">
                       <div className="threat-title">
-                        <span className="threat-severity-dot" style={{ background: severityColor(t.max_confidence || 0.5) }} />
-                        {t.pattern}
+                        <span className="threat-severity-dot" style={{ background: severityColor(threat.max_confidence || 0.5) }} />
+                        {threat.pattern}
                       </div>
-                      <span className={`threat-trend ${trendClass(t.trend)}`}>
-                        {trendIcon(t.trend)}
-                        {t.trend}
+                      <span className={`threat-trend ${trendClass(threat.trend)}`}>
+                        {trendIcon(threat.trend)}
+                        {threat.trend}
                       </span>
                     </div>
                     <div className="threat-meta">
-                      <span><Activity size={12} /> {t.count_24h} detections (24h)</span>
-                      <span><BarChart3 size={12} /> {t.count_1h} in last hour</span>
-                      <span><AlertTriangle size={12} /> Peak: {(t.max_confidence * 100).toFixed(0)}%</span>
-                      <span><Shield size={12} /> Avg: {(t.avg_confidence * 100).toFixed(0)}%</span>
+                      <span><Activity size={12} /> {t("commandCentre.detections24h", { count: threat.count_24h })}</span>
+                      <span><BarChart3 size={12} /> {t("commandCentre.lastHour", { count: threat.count_1h })}</span>
+                      <span><AlertTriangle size={12} /> {t("commandCentre.peak", { value: (threat.max_confidence * 100).toFixed(0) })}</span>
+                      <span><Shield size={12} /> {t("commandCentre.average", { value: (threat.avg_confidence * 100).toFixed(0) })}</span>
                     </div>
                   </div>
                 ))}
@@ -371,7 +372,7 @@ export default function CommandCentre() {
             )}
             {threatFeed?.modality_breakdown && Object.keys(threatFeed.modality_breakdown).length > 0 && (
               <div className="cc-modality-bar">
-                <h4>Analysis by Modality</h4>
+                <h4>{t("commandCentre.analysisByModality")}</h4>
                 <div className="modality-chips">
                   {Object.entries(threatFeed.modality_breakdown).map(([mod, count]) => (
                     <span key={mod} className="modality-chip">{mod}: {count}</span>
@@ -384,9 +385,9 @@ export default function CommandCentre() {
 
         {activeTab === "metrics" && (
           <div className="cc-panel">
-            <h3>AI Model Benchmarks</h3>
+            <h3>{t("commandCentre.benchmarksTitle")}</h3>
             <p className="cc-subtitle">
-              {benchmarks?.disclosure || `Metrics recorded for ${benchmarks?.system_totals?.total_models ?? 0} locally evaluated models.`}
+              {benchmarks?.disclosure || t("commandCentre.metricsRecorded", { count: benchmarks?.system_totals?.total_models ?? 0 })}
             </p>
             <div className="cc-metrics-grid">
               {(benchmarks?.models || []).map((m) => (

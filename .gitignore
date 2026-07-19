@@ -45,6 +45,8 @@ backend/data/trained_models/**/*.pt
 backend/data/trained_models/**/*.bin
 backend/data/trained_models/**/*.safetensors
 backend/data/data/
+backend/data/public_sources/
+backend/data/sandbox_manifest.json
 yolov*.pt
 
 # OS / editor

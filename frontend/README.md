@@ -47,10 +47,11 @@ Vite prints the preview URL, normally `http://localhost:4173`.
 - Text, image, audio upload, and in-browser microphone recording
 - Scam and legitimate transcript demos
 - Turn-by-turn confidence trajectory
+- Backend-issued real-time session and validated WebSocket status channel
 - Agent trace, model evidence, recommendations, and report guidance
 - Fraud graph and geospatial hotspot views
 - Evidence export and browser verdict playback
-- Responsive interface with 113 checked strings across all 12 supported languages
+- Responsive interface with 152 checked strings across all 12 supported languages
 - Request-time localized Kimi explanations, recommendations, and turn-level reasoning
 
 ## Important Notes

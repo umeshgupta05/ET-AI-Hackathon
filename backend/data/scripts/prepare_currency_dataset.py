@@ -29,7 +29,7 @@ except ImportError as exc:
 DATASET_REF = "preetrank/indian-currency-real-vs-fake-notes-dataset"
 DATASET_URL = f"https://www.kaggle.com/datasets/{DATASET_REF}"
 DATASET_LICENSE = "CC BY-NC-SA 4.0"
-DENOMINATIONS = ("10", "20", "50", "100", "500", "2000")
+DENOMINATIONS = ("10", "20", "50", "100", "200", "500", "2000")
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "training" / "currency"
 MANIFEST_PATH = OUTPUT_DIR / "source_manifest.json"
 STAGING_DIR = OUTPUT_DIR / ".download_staging"

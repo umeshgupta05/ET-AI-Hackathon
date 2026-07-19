@@ -1,13 +1,18 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { base } from "../src/i18n.js";
+import { base, partials } from "../src/i18n.js";
 
 
 const root = resolve(import.meta.dirname, "../..");
 const outputPath = resolve(root, "frontend/src/locales/generated.json");
 const tempPath = `${outputPath}.tmp`;
 const localeNames = {
+  hi: "Hindi",
+  te: "Telugu",
+  ta: "Tamil",
+  kn: "Kannada",
+  bn: "Bengali",
   mr: "Marathi",
   gu: "Gujarati",
   ml: "Malayalam",
@@ -66,8 +71,7 @@ async function translateChunk(locale, language, source, chunkNumber) {
       body: JSON.stringify({
         model: "openai/gpt-oss-20b",
         temperature: 0.1,
-        max_tokens: 2500,
-        response_format: { type: "json_object" },
+        max_tokens: 4000,
         messages: [
           {
             role: "system",
@@ -91,26 +95,22 @@ async function translateChunk(locale, language, source, chunkNumber) {
     const payload = await response.json();
     const content = payload.choices?.[0]?.message?.content;
     if (!content) throw new Error(`${locale} chunk ${chunkNumber}: model returned no catalog`);
-    return JSON.parse(content.replace(/^```json\s*|\s*```$/g, ""));
+    try {
+      return JSON.parse(content.replace(/^```json\s*|\s*```$/g, ""));
+    } catch (error) {
+      if (attempt < 3) continue;
+      throw error;
+    }
   }
   throw new Error(`${locale} chunk ${chunkNumber}: retry budget exhausted`);
 }
 
 
-async function translate(locale, language) {
-  const entries = Object.entries(base);
-  const chunkCount = 6;
-  const chunkSize = Math.ceil(entries.length / chunkCount);
-  const chunks = Array.from({ length: chunkCount }, (_, index) =>
-    Object.fromEntries(entries.slice(index * chunkSize, (index + 1) * chunkSize)),
-  ).filter((chunk) => Object.keys(chunk).length);
-  const translatedChunks = [];
-  for (const [index, chunk] of chunks.entries()) {
-    translatedChunks.push(await translateChunk(locale, language, chunk, index + 1));
-  }
-  const catalog = Object.assign({}, ...translatedChunks);
+async function translate(locale, language, existingCatalog = {}) {
   const requiredKeys = new Set(flatten(base).map(([key]) => key));
-  const translatedKeys = new Set(flatten(catalog).map(([key]) => key));
+  const translatedKeys = new Set(
+    flatten({ ...(partials[locale] || {}), ...existingCatalog }).map(([key]) => key),
+  );
   const missingRoots = [
     ...new Set(
       [...requiredKeys]
@@ -118,6 +118,7 @@ async function translate(locale, language) {
         .map((key) => key.split(".")[0]),
     ),
   ];
+  const catalog = { ...existingCatalog };
   for (const rootKey of missingRoots) {
     const repaired = await translateChunk(
       locale,
@@ -127,7 +128,7 @@ async function translate(locale, language) {
     );
     catalog[rootKey] = repaired[rootKey];
   }
-  validateCatalog(locale, catalog);
+  validateCatalog(locale, { ...(partials[locale] || {}), ...catalog });
   return catalog;
 }
 
@@ -142,11 +143,17 @@ const targets = requested ? { [requested]: localeNames[requested] } : localeName
 if (Object.values(targets).some((name) => !name)) throw new Error(`Unsupported locale: ${requested}`);
 
 const existing = JSON.parse(await readFile(outputPath, "utf8"));
-const pending = Object.entries(targets).filter(([locale]) => !existing[locale]);
+const requiredKeys = new Set(flatten(base).map(([key]) => key));
+const pending = Object.entries(targets).filter(([locale]) => {
+  const translatedKeys = new Set(
+    flatten({ ...(partials[locale] || {}), ...(existing[locale] || {}) }).map(([key]) => key),
+  );
+  return [...requiredKeys].some((key) => !translatedKeys.has(key));
+});
 const results = await Promise.allSettled(
   pending.map(async ([locale, language]) => {
     console.log(`Generating ${language}...`);
-    const catalog = await translate(locale, language);
+    const catalog = await translate(locale, language, existing[locale] || {});
     console.log(`${language}: complete`);
     return [locale, catalog];
   }),

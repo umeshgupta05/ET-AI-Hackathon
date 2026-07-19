@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import CommandCentre from "./CommandCentre";
+import { lazy, Suspense, useState, useRef, useEffect, useCallback } from "react";
 import "./CommandCentre.css";
 import {
   AlertTriangle,
@@ -16,6 +15,7 @@ import {
   Moon,
   Network,
   Send,
+  ScanLine,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -41,10 +41,13 @@ import {
   logoutUser,
   registerUser,
   setAccessToken,
+  startRealtimeSession,
   transcribeVoice,
   updateMe,
   traceWebSocketUrl,
 } from "./utils/api";
+
+const CommandCentre = lazy(() => import("./CommandCentre"));
 
 function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfileUpdated }) {
   const { t } = useTranslation();
@@ -172,6 +175,8 @@ function Header({
   onShowRegister,
   onShowProfile,
   onLogout,
+  showLiveScan,
+  onOpenLiveScan,
 }) {
   const { t } = useTranslation();
   return (
@@ -186,6 +191,12 @@ function Header({
         </div>
       </div>
       <div className="header__actions">
+        {showLiveScan && (
+          <button className="header__live-scan" type="button" onClick={onOpenLiveScan}>
+            <ScanLine size={17} />
+            <span>{t("back")} · {t("welcomeTitle")}</span>
+          </button>
+        )}
         <div className={`live-status live-status--${liveStatus}`}>
           <span />
           {liveStatus === "live"
@@ -908,13 +919,22 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    const sessionId = crypto.randomUUID?.() || String(Date.now());
-    const socket = new WebSocket(traceWebSocketUrl(sessionId));
-    socket.onopen = () => setLiveStatus("live");
-    socket.onerror = () => setLiveStatus("offline");
-    socket.onclose = () => setLiveStatus("offline");
-    return () => socket.close();
-  }, []);
+    let socket;
+    let cancelled = false;
+    startRealtimeSession({ channel: "web", language, metadata: { client: "react_app" } })
+      .then((session) => {
+        if (cancelled) return;
+        socket = new WebSocket(traceWebSocketUrl(session.session_id));
+        socket.onopen = () => setLiveStatus("live");
+        socket.onerror = () => setLiveStatus("offline");
+        socket.onclose = () => setLiveStatus("offline");
+      })
+      .catch(() => setLiveStatus("offline"));
+    return () => {
+      cancelled = true;
+      socket?.close();
+    };
+  }, [language]);
 
   const changeLanguage = (nextLanguage) => {
     setLanguage(nextLanguage);
@@ -1097,6 +1117,11 @@ export default function App() {
         onShowRegister={() => setDialogMode("register")}
         onShowProfile={() => setDialogMode("profile")}
         onLogout={() => { logoutUser().catch(() => setAccessToken(null)).finally(() => setUser(null)); }}
+        showLiveScan={viewMode !== "analysis"}
+        onOpenLiveScan={() => {
+          setViewMode("analysis");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
       />
       {dialogMode && (
         <AccountDialog
@@ -1119,7 +1144,9 @@ export default function App() {
       <div className="main">
         {viewMode === "command" ? (
           <div className="chat-area" style={{ maxWidth: "100%", flex: 1 }}>
-            <CommandCentre />
+            <Suspense fallback={<div className="cc-loading">{t("agentsAnalyzing")}</div>}>
+              <CommandCentre />
+            </Suspense>
           </div>
         ) : (
         <div className="chat-area">

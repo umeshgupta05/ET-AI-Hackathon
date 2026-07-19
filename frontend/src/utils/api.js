@@ -174,6 +174,15 @@ export function traceWebSocketUrl(sessionId) {
   return `${protocol}//${url.host}/ws/session/${sessionId}`;
 }
 
+export async function startRealtimeSession({ channel = "web", language = "en", metadata = {} } = {}) {
+  const response = await fetch(`${API_BASE}/api/realtime/sessions`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ channel, language, metadata }),
+  });
+  return parseOrThrow(response, "Realtime session unavailable");
+}
+
 export async function getThreatFeed() {
   const response = await fetch(`${API_BASE}/api/intelligence/threat-feed`);
   return parseOrThrow(response, "Threat feed unavailable");

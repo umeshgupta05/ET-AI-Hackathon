@@ -180,6 +180,7 @@ class GraphAgent:
         self._gat_model = None
         self._device = torch.device("cpu")
         self._initialized = False
+        self._data_mode = "uninitialized"
 
     async def initialize(self) -> None:
         """Initialize graph and GAT model."""
@@ -212,11 +213,84 @@ class GraphAgent:
             else:
                 logger.info("✅ GAT model initialized (4-head attention, 2 layers) — untrained")
 
-        # Build initial fraud graph from known patterns
-        self._build_demo_graph()
+        if not self._build_operational_graph():
+            from production_readiness import demo_intelligence_allowed
+
+            if demo_intelligence_allowed():
+                self._build_demo_graph()
+            else:
+                self._graph = nx.DiGraph() if HAS_NETWORKX else {"nodes": [], "edges": []}
+                self._data_mode = "unavailable_requires_authorized_feed"
 
         self._initialized = True
         logger.info("✅ Graph AI Agent ready")
+
+    def _build_operational_graph(self) -> bool:
+        """Build graph from authorized ingested entities and edges."""
+        if not HAS_NETWORKX:
+            return False
+        try:
+            from operational_store import list_graph_edges, list_graph_entities
+
+            entities = list_graph_entities()
+            edges = list_graph_edges()
+        except Exception as exc:
+            logger.warning("Could not load operational graph feed: %s", exc)
+            return False
+
+        if not entities or not edges:
+            return False
+
+        tiers = {
+            item.get("provenance_tier", "synthetic_sandbox")
+            for item in [*entities, *edges]
+        }
+        from production_readiness import demo_intelligence_allowed
+
+        if not demo_intelligence_allowed():
+            entities = [item for item in entities if item.get("provenance_tier") == "authorized"]
+            authorized_ids = {item["id"] for item in entities}
+            edges = [
+                item for item in edges
+                if item.get("provenance_tier") == "authorized"
+                and item["source_id"] in authorized_ids
+                and item["target_id"] in authorized_ids
+            ]
+            if not entities or not edges:
+                return False
+            tiers = {"authorized"}
+        self._data_mode = "authorized" if tiers == {"authorized"} else "sandbox_or_research"
+
+        G = nx.DiGraph()
+        for entity in entities:
+            attrs = dict(entity.get("attrs") or {})
+            attrs.setdefault("type", entity.get("type", "unknown"))
+            attrs.setdefault("label", entity.get("label", "unknown"))
+            attrs.setdefault("source", entity.get("source", "authorized_feed"))
+            attrs.setdefault("source_reference", entity.get("source_reference"))
+            G.add_node(entity["id"], **attrs)
+
+        for edge in edges:
+            if edge["source_id"] not in G:
+                G.add_node(edge["source_id"], type="unknown", label="unknown")
+            if edge["target_id"] not in G:
+                G.add_node(edge["target_id"], type="unknown", label="unknown")
+            attrs = dict(edge.get("attrs") or {})
+            attrs.update({
+                "type": edge.get("type", "connected"),
+                "weight": edge.get("weight", 1.0),
+                "source": edge.get("source", "authorized_feed"),
+                "source_reference": edge.get("source_reference"),
+            })
+            G.add_edge(edge["source_id"], edge["target_id"], **attrs)
+
+        self._graph = G
+        logger.info(
+            "Operational fraud graph built: %s nodes, %s edges",
+            G.number_of_nodes(),
+            G.number_of_edges(),
+        )
+        return True
 
     def _build_demo_graph(self) -> None:
         """
@@ -236,6 +310,8 @@ class GraphAgent:
         if not HAS_NETWORKX:
             self._graph = {"nodes": [], "edges": []}
             return
+
+        self._data_mode = "built_in_demo"
 
         G = nx.DiGraph()
 
@@ -454,6 +530,11 @@ class GraphAgent:
             "communities": [],
             "high_risk_nodes": [],
             "network_risk_score": 0.0,
+            "model_quality": {
+                "status": "not_evaluated",
+                "inference_method": "none",
+                "distribution_shift_detected": False,
+            },
         }
 
         if not HAS_NETWORKX or self._graph is None:
@@ -481,6 +562,54 @@ class GraphAgent:
                 # Run GAT
                 fraud_scores = self._gat_model(x, a).cpu().numpy()
 
+                high_ratio = float(np.mean(fraud_scores > 0.5))
+                score_std = float(np.std(fraud_scores))
+                collapsed = high_ratio >= 0.85 or score_std < 0.025
+                if collapsed:
+                    # The trained demo graph is not permitted to generalize
+                    # blindly to a feed with a different feature distribution.
+                    evidence_scores = []
+                    for i, node in enumerate(list(G.nodes())):
+                        attrs = G.nodes[node]
+                        if attrs.get("type") == "phone":
+                            score = (
+                                min(float(features[i][2]), 1.0) * 0.24
+                                + min(float(features[i][3]), 1.0) * 0.28
+                                + min(float(features[i][4]), 1.0) * 0.12
+                                + min(float(features[i][5]), 1.0) * 0.14
+                                + min(float(features[i][6]) * 8.0, 1.0) * 0.14
+                                + min(float(features[i][0]), 1.0) * 0.08
+                            )
+                        elif attrs.get("type") == "account":
+                            score = (
+                                min(float(features[i][1]), 1.0) * 0.16
+                                + min(float(features[i][2]), 1.0) * 0.18
+                                + min(float(features[i][3]), 1.0) * 0.24
+                                + max(0.0, 1.0 - float(features[i][4])) * 0.12
+                                + min(float(features[i][5]), 1.0) * 0.18
+                                + min((float(features[i][6]) + float(features[i][7])) * 8.0, 1.0) * 0.12
+                            )
+                        else:
+                            score = min((float(features[i][6]) + float(features[i][7])) * 6.0, 1.0) * 0.4
+                        evidence_scores.append(max(0.0, min(1.0, score)))
+                    fraud_scores = np.asarray(evidence_scores, dtype=np.float32)
+                    result["model_quality"] = {
+                        "status": "degraded_score_collapse",
+                        "inference_method": "evidence_anomaly_fallback",
+                        "distribution_shift_detected": True,
+                        "gat_high_risk_ratio": round(high_ratio, 4),
+                        "gat_score_std": round(score_std, 4),
+                        "warning": "GAT outputs were suppressed because the input distribution differs from its training graph.",
+                    }
+                else:
+                    result["model_quality"] = {
+                        "status": "nominal",
+                        "inference_method": "gat",
+                        "distribution_shift_detected": False,
+                        "gat_high_risk_ratio": round(high_ratio, 4),
+                        "gat_score_std": round(score_std, 4),
+                    }
+
                 nodes = list(G.nodes())
                 for i, node in enumerate(nodes):
                     attrs = G.nodes[node]
@@ -489,7 +618,8 @@ class GraphAgent:
                         "type": attrs.get("type", "unknown"),
                         "label": attrs.get("label", "unknown"),
                     }
-                    if fraud_scores[i] > 0.5:
+                    threshold = 0.45 if collapsed else 0.5
+                    if fraud_scores[i] > threshold:
                         result["high_risk_nodes"].append({
                             "node_id": node,
                             "fraud_probability": round(float(fraud_scores[i]), 4),
@@ -521,6 +651,12 @@ class GraphAgent:
         if result["gat_scores"]:
             all_scores = [s["fraud_probability"] for s in result["gat_scores"].values()]
             result["network_risk_score"] = round(float(np.mean(all_scores)), 4)
+
+        result["data_mode"] = self._data_mode
+        result["operational_disclosure"] = (
+            "Authorized feed intelligence" if self._data_mode == "authorized"
+            else "Research/sandbox graph; results are demonstration leads and require human verification"
+        )
 
         return result
 
@@ -603,6 +739,7 @@ class GraphAgent:
             "status": "ready" if self._initialized else "not_initialized",
             "architecture": "Graph Attention Network (GAT) — 4-head, 2-layer",
             "graph_size": {"nodes": node_count, "edges": edge_count},
+            "data_mode": self._data_mode,
             "techniques": [
                 "Graph Attention Network (GAT)",
                 "Community Detection (modularity)",

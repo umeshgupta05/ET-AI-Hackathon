@@ -30,6 +30,10 @@ from models.vision.classifier import get_forgery_classifier
 from models.vision.forensics import get_forensic_analyzer
 from models.vision.explainability import get_explainability_engine
 from models.vision.clip_scorer import get_clip_scorer
+from models.vision.currency_features import (
+    inspect_security_features,
+    validate_currency_candidate,
+)
 from models.nlp.llm_client import get_llm_client
 
 logger = logging.getLogger(__name__)
@@ -70,7 +74,12 @@ class VisionAgent:
         self._initialized = True
         logger.info(" Vision Agent ready (9 AI techniques incl. CLIP when available)")
 
-    async def analyze(self, image_bytes: bytes, language: str = "en") -> dict:
+    async def analyze(
+        self,
+        image_bytes: bytes,
+        language: str = "en",
+        context: Optional[dict] = None,
+    ) -> dict:
         """
         Full analysis pipeline for a currency note image.
 
@@ -97,6 +106,34 @@ class VisionAgent:
         detection = self._detector.detect_currency(image)
         note_crop = detection.get("note_crop", image)
 
+        # CLIP and geometry jointly establish that the input is plausibly a
+        # banknote. Generic object detections are never accepted as currency.
+        clip_result = self._clip.score(note_crop)
+        candidate = validate_currency_candidate(image, note_crop, detection, clip_result)
+        if not candidate["is_currency_candidate"]:
+            return {
+                "agent": "vision",
+                "verdict": "not_currency",
+                "model_confidence": 0.0,
+                "input_rejected": True,
+                "rejection_code": "currency_candidate_not_found",
+                "candidate_validation": candidate,
+                "detection": {
+                    "note_detected": False,
+                    "detection_confidence": detection["confidence"],
+                    "detector_type": detection.get("detector_type"),
+                    "note_dimensions": detection.get("note_dimensions"),
+                },
+                "clip": clip_result,
+                "response_language": normalize_language(language),
+                "explanation": "The uploaded image was rejected because a plausible currency note could not be verified.",
+                "techniques_used": [
+                    "Currency candidate validation",
+                    "CLIP zero-shot vision-language scoring",
+                    "Geometric document validation",
+                ],
+            }
+
         # Step 2: EfficientNet-B0 classification per region
         regions = detection.get("regions", {})
         classification = self._classifier.classify_all_regions(regions)
@@ -104,8 +141,13 @@ class VisionAgent:
         # Step 3: Forensic analysis (ELA + FFT + NPR)
         forensics = self._forensics.analyze(note_crop)
 
-        # Step 3b: CLIP zero-shot authenticity signal
-        clip_result = self._clip.score(note_crop)
+        capture_context = context or {}
+        security_features = inspect_security_features(
+            regions,
+            capture_mode=str(capture_context.get("capture_mode", "rgb")),
+            expected_denomination=capture_context.get("denomination"),
+            supplied_serial=capture_context.get("serial_number"),
+        )
 
         # Step 4: Grad-CAM explainability
         gradcam_result = None
@@ -168,8 +210,11 @@ class VisionAgent:
             "detection": {
                 "note_detected": detection["detected"],
                 "detection_confidence": detection["confidence"],
+                "detector_type": detection.get("detector_type"),
                 "note_dimensions": detection.get("note_dimensions"),
             },
+            "candidate_validation": candidate,
+            "security_features": security_features,
             "classification": {
                 "model_available": classification.get("model_available", False),
                 "genuine_score": classification.get("fused_genuine_score", 0.5),
@@ -197,6 +242,8 @@ class VisionAgent:
             ),
             "techniques_used": [
                 "YOLOv8 (object detection)",
+                "Currency candidate validation",
+                "Security feature inspection (microprint/thread/serial/watermark/UV)",
                 *(["EfficientNet-B0 (forgery classification)", "Contrastive Learning (SimCLR-style)"] if classification.get("model_available") else []),
                 "Error Level Analysis (ELA)",
                 "FFT Frequency Analysis",

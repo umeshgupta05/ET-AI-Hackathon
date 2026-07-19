@@ -3,8 +3,11 @@
 import hashlib
 import json
 import math
+import secrets
 from datetime import datetime, timezone
 from typing import Any, Optional
+
+from operational_store import list_geospatial_incidents, save_reporting_draft
 
 
 INCIDENTS = [
@@ -32,9 +35,33 @@ def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def _active_incidents() -> tuple[list[dict[str, Any]], str, str]:
+    operational = list_geospatial_incidents()
+    if operational:
+        tiers = {item.get("provenance_tier", "synthetic_sandbox") for item in operational}
+        if tiers == {"authorized"}:
+            return (
+                operational,
+                "authorized operational intelligence feeds",
+                "Live feed records normalized from authorized ingest APIs.",
+            )
+        source = "hackathon sandbox feed" if "synthetic_sandbox" in tiers else "public research feed"
+        return (
+            operational,
+            source,
+            "Non-authorized data for demonstration and research only; not operational law-enforcement intelligence.",
+        )
+    return (
+        INCIDENTS,
+        "anonymized demonstration intelligence feed",
+        "Demo data only; connect authorized NCRB, bank, telecom, and state feeds for operational deployment.",
+    )
+
+
 def geospatial_overview(latitude: Optional[float] = None, longitude: Optional[float] = None) -> dict[str, Any]:
+    incidents, source, limitations = _active_incidents()
     hotspots = []
-    for incident in INCIDENTS:
+    for incident in incidents:
         item = dict(incident)
         item["risk_score"] = round(incident["severity"] * 0.65 + min(incident["reports"] / 40, 1) * 0.35, 3)
         if latitude is not None and longitude is not None:
@@ -43,14 +70,59 @@ def geospatial_overview(latitude: Optional[float] = None, longitude: Optional[fl
     hotspots.sort(key=lambda item: item.get("distance_km", -item["risk_score"]))
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "source": "anonymized demonstration intelligence feed",
+        "source": source,
         "hotspots": hotspots,
         "summary": {
-            "reports": sum(item["reports"] for item in INCIDENTS),
-            "districts": len(INCIDENTS),
-            "highest_risk_district": max(INCIDENTS, key=lambda item: item["severity"])["district"],
+            "reports": sum(item["reports"] for item in incidents),
+            "districts": len({item["district"] for item in incidents}),
+            "highest_risk_district": max(incidents, key=lambda item: item["severity"])["district"] if incidents else None,
         },
-        "limitations": "Demo data only; connect authorized NCRB, bank, telecom, and state feeds for operational deployment.",
+        "limitations": limitations,
+    }
+
+
+def command_center_plan(available_units: int = 10) -> dict[str, Any]:
+    """Allocate patrol/analyst capacity from current hotspot risk and report volume."""
+    overview = geospatial_overview()
+    hotspots = overview["hotspots"]
+    total_weight = sum(max(0.01, item["risk_score"] * item["reports"]) for item in hotspots)
+    remaining = max(1, available_units)
+    allocations = []
+    for index, hotspot in enumerate(hotspots):
+        weight = max(0.01, hotspot["risk_score"] * hotspot["reports"])
+        units = max(1, round(available_units * weight / total_weight)) if available_units >= len(hotspots) else 0
+        if index < available_units and units == 0:
+            units = 1
+        units = min(units, remaining)
+        remaining -= units
+        allocations.append({
+            "district": hotspot["district"],
+            "incident_type": hotspot["type"],
+            "priority": "critical" if hotspot["risk_score"] >= 0.8 else "high" if hotspot["risk_score"] >= 0.6 else "monitor",
+            "recommended_units": units,
+            "risk_score": hotspot["risk_score"],
+            "reports": hotspot["reports"],
+            "recommended_action": (
+                "Coordinate cyber cell, bank liaison, and telecom nodal officer"
+                if hotspot["type"] != "counterfeit"
+                else "Coordinate field seizure team, bank branch alerts, and forensic screening"
+            ),
+        })
+    return {
+        "generated_at": overview["generated_at"],
+        "source": overview["source"],
+        "available_units": available_units,
+        "allocations": allocations,
+        "inter_district_sharing": [
+            {
+                "lead_district": item["district"],
+                "share_with": [other["district"] for other in hotspots if other["type"] == item["type"] and other["district"] != item["district"]][:3],
+                "threat_type": item["type"],
+            }
+            for item in hotspots[:5]
+        ],
+        "human_approval_required": True,
+        "limitations": overview["limitations"],
     }
 
 
@@ -91,3 +163,38 @@ def reporting_guidance(risk_level: str) -> dict[str, Any]:
         "priority": "immediate" if urgent else "standard",
         "note": "This application does not submit a police complaint automatically.",
     }
+
+
+def build_reporting_draft(case: dict[str, Any], user: dict[str, Any], destination: str = "NCRP") -> dict[str, Any]:
+    """Create an evidence-preserving reporting draft for human submission."""
+    evidence = build_evidence_package(case, user)
+    payload = {
+        "destination": destination,
+        "case_id": case["id"],
+        "created_for": {"user_id": user["id"], "name": user["name"]},
+        "official_channels": reporting_guidance(case["result"].get("risk_level", "medium"))["official_channels"],
+        "summary": {
+            "case_type": case["case_type"],
+            "verdict": case["result"].get("verdict") or case["result"].get("final_verdict"),
+            "risk_level": case["result"].get("risk_level"),
+            "confidence": case["result"].get("confidence"),
+            "agents_invoked": case["result"].get("agents_invoked", []),
+        },
+        "evidence_package": evidence,
+        "submission_status": "draft_requires_human_review",
+        "disclosure": "Prepared for manual official submission; no automatic complaint filing occurred.",
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    created_at = datetime.now(timezone.utc).isoformat()
+    draft = {
+        "id": secrets.token_urlsafe(12),
+        "case_id": case["id"],
+        "user_id": user["id"],
+        "destination": destination,
+        "status": "draft_requires_human_review",
+        "payload": payload,
+        "integrity_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "created_at": created_at,
+    }
+    save_reporting_draft(draft)
+    return draft

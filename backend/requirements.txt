@@ -45,6 +45,7 @@ networkx==3.5
 
 # ─── Utilities ──────────────────────────────────────
 aiofiles==24.1.0
+boto3==1.39.3  # S3-compatible encrypted evidence object storage
 python-jose==3.4.0
 kaggle==1.7.4.5  # Dataset preparation/training only
 remotezip==0.12.3  # Selective extraction from large training archives
@@ -54,3 +55,7 @@ aio-pika==10.0.1  # RabbitMQ durable job transport
 redis==8.0.1  # Optional pooled Redis coordination and distributed rate limiting
 mcp==1.28.1  # Model Context Protocol analyst adapter
 sse-starlette==2.3.6  # Keep MCP compatible with the pinned FastAPI stack
+opentelemetry-api==1.31.1
+opentelemetry-sdk==1.31.1
+opentelemetry-exporter-otlp==1.31.1
+opentelemetry-instrumentation-fastapi==0.52b1

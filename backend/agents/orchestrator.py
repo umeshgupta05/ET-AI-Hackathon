@@ -373,6 +373,7 @@ class FusionOrchestrator:
             vision_result = await self._vision_agent.analyze(
                 image_bytes,
                 language=state.get("response_language", "en"),
+                context=state.get("graph_context") or {},
             )
 
             trace_entry = {
@@ -505,6 +506,24 @@ class FusionOrchestrator:
         weights = {}
 
         vision_result = state.get("vision_result")
+        if vision_result and vision_result.get("input_rejected"):
+            trace_entry = {
+                "step": "fusion",
+                "fusion_method": "input_validation_gate",
+                "verdict": "invalid_input",
+                "reason": vision_result.get("rejection_code"),
+                "timestamp": time.time() - start_time,
+            }
+            return {
+                "fused_score": 0.0,
+                "base_weighted_score": 0.0,
+                "verdict": "invalid_input",
+                "per_agent_scores": {},
+                "per_agent_weights": {},
+                "fusion_method": "input_validation_gate",
+                "xgboost_features": {},
+                "trace": state.get("trace", []) + [trace_entry],
+            }
         if vision_result:
             scores["vision"] = vision_result.get("model_confidence", 0.5)
             weights["vision"] = config.orchestrator.vision_weight
@@ -614,6 +633,19 @@ class FusionOrchestrator:
         """Final calibration: isotonic/Platt scaling for reliable probabilities."""
         fused_score = state.get("fused_score", 0.5)
         start_time = state.get("start_time", time.time())
+
+        if state.get("verdict") == "invalid_input":
+            return {
+                "calibrated_score": 0.0,
+                "risk_level": "invalid_input",
+                "verdict": "invalid_input",
+                "trace": state.get("trace", []) + [{
+                    "step": "calibration",
+                    "skipped": True,
+                    "reason": "input_validation_gate",
+                    "timestamp": time.time() - start_time,
+                }],
+            }
 
         calibrated_score = self._calibration.calibrate(fused_score)
 
