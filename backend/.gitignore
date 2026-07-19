@@ -27,6 +27,9 @@ data/training/currency/genuine/*
 data/training/currency/counterfeit/*
 data/training/currency/.download_staging/
 data/training/currency/.source_index.json
+data/training/currency/.source_index_v2.json
+data/training/currency/.feature_audit/
+data/training/currency/feature_reference/
 
 # Large trained weights; keep scripts, metadata, and small configs tracked
 data/trained_models/**/*.pth

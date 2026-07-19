@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import config
 from agents.orchestrator import FusionOrchestrator
+from models.vision.currency_features import compare_tilt_captures
 from auth_store import (
     SUPPORTED_LANGUAGES,
     authenticate_user,
@@ -1605,9 +1606,10 @@ async def analyze_multimodal(
     image: Optional[UploadFile] = File(None),
     audio: Optional[UploadFile] = File(None),
     language: str = Form("en"),
-    capture_mode: str = Form("rgb", pattern="^(rgb|uv|ir|transmitted)$"),
+    capture_mode: str = Form("rgb", pattern="^(rgb|uv|ir|transmitted|tilt_rgb)$"),
     denomination: Optional[str] = Form(None),
     serial_number: Optional[str] = Form(None, max_length=32),
+    microtext_ocr: Optional[str] = Form(None, max_length=128),
     note_side: str = Form("unknown", pattern="^(front|back|unknown)$"),
     user: Optional[dict] = Depends(get_optional_user),
 ):
@@ -1649,6 +1651,7 @@ async def analyze_multimodal(
                 "capture_mode": capture_mode,
                 "denomination": denomination,
                 "serial_number": serial_number,
+                "microtext_ocr": microtext_ocr,
                 "note_side": note_side,
             } if image_bytes else None,
             language=normalize_language(language),
@@ -1688,9 +1691,10 @@ async def analyze_text(request: TextAnalysisRequest, user: Optional[dict] = Depe
 async def analyze_image(
     image: UploadFile = File(...),
     language: str = Form("en"),
-    capture_mode: str = Form("rgb", pattern="^(rgb|uv|ir|transmitted)$"),
+    capture_mode: str = Form("rgb", pattern="^(rgb|uv|ir|transmitted|tilt_rgb)$"),
     denomination: Optional[str] = Form(None),
     serial_number: Optional[str] = Form(None, max_length=32),
+    microtext_ocr: Optional[str] = Form(None, max_length=128),
     note_side: str = Form("unknown", pattern="^(front|back|unknown)$"),
     user: Optional[dict] = Depends(get_optional_user),
 ):
@@ -1707,6 +1711,7 @@ async def analyze_image(
                 "capture_mode": capture_mode,
                 "denomination": denomination,
                 "serial_number": serial_number,
+                "microtext_ocr": microtext_ocr,
                 "note_side": note_side,
             },
             language=normalize_language(language),
@@ -1725,8 +1730,18 @@ async def inspect_currency_note(
     front: UploadFile = File(...),
     back: Optional[UploadFile] = File(None),
     uv: Optional[UploadFile] = File(None),
+    transmitted: Optional[UploadFile] = File(None),
+    tilt: Optional[UploadFile] = File(None),
+    ir: Optional[UploadFile] = File(None),
     denomination: Optional[str] = Form(None),
     serial_number: Optional[str] = Form(None, max_length=32),
+    microtext_ocr: Optional[str] = Form(None, max_length=128),
+    physical_width_mm: Optional[float] = Form(None, ge=40, le=250),
+    physical_height_mm: Optional[float] = Form(None, ge=30, le=120),
+    thickness_mm: Optional[float] = Form(None, ge=0.01, le=1.0),
+    magnetic_thread_detected: Optional[bool] = Form(None),
+    double_feed_detected: Optional[bool] = Form(None),
+    client_type: str = Form("mobile_app", pattern="^(mobile_app|bank_counting_machine|point_of_sale)$"),
     language: str = Form("en"),
     user: Optional[dict] = Depends(get_optional_user),
 ):
@@ -1740,8 +1755,15 @@ async def inspect_currency_note(
         captures.append(("back", await _read_upload(back, kind="image"), "rgb"))
     if uv:
         captures.append(("uv", await _read_upload(uv, kind="image"), "uv"))
+    if transmitted:
+        captures.append(("transmitted", await _read_upload(transmitted, kind="image"), "transmitted"))
+    if tilt:
+        captures.append(("tilt", await _read_upload(tilt, kind="image"), "tilt_rgb"))
+    if ir:
+        captures.append(("ir", await _read_upload(ir, kind="image"), "ir"))
 
     results: dict[str, dict] = {}
+    capture_bytes = {side: image_bytes for side, image_bytes, _ in captures}
     for side, image_bytes, mode in captures:
         result = await orchestrator.process(
             image_bytes=image_bytes,
@@ -1749,38 +1771,79 @@ async def inspect_currency_note(
                 "capture_mode": mode,
                 "denomination": denomination,
                 "serial_number": serial_number,
+                "microtext_ocr": microtext_ocr,
                 "note_side": side,
+                "physical_width_mm": physical_width_mm,
+                "physical_height_mm": physical_height_mm,
+                "thickness_mm": thickness_mm,
+                "magnetic_thread_detected": magnetic_thread_detected,
+                "double_feed_detected": double_feed_detected,
             },
             language=normalize_language(language),
         )
         results[side] = _annotate_currency_certification(result)
 
     rejected = [side for side, result in results.items() if result.get("verdict") == "invalid_input"]
-    valid_results = [result for result in results.values() if result.get("verdict") != "invalid_input"]
+    valid_results = [
+        result for side, result in results.items()
+        if side in {"front", "back", "tilt"} and result.get("verdict") != "invalid_input"
+    ]
     confidence = max((float(result.get("confidence", 0)) for result in valid_results), default=0.0)
+    required_captures = {"front", "back", "uv", "transmitted"}
+    if denomination and str(denomination).replace("INR", "").replace("Rs", "").strip() in {"100", "200", "500", "2000"}:
+        required_captures.add("tilt")
+    complete = required_captures.issubset(results)
+    paired_feature_checks = {}
+    if "front" in capture_bytes and "tilt" in capture_bytes:
+        paired_feature_checks["colour_shift"] = compare_tilt_captures(
+            capture_bytes["front"], capture_bytes["tilt"], denomination
+        )
+    machine_signal_values = {
+        "physical_width_mm": physical_width_mm,
+        "physical_height_mm": physical_height_mm,
+        "thickness_mm": thickness_mm,
+        "magnetic_thread_detected": magnetic_thread_detected,
+        "double_feed_detected": double_feed_detected,
+        "serial_number": serial_number,
+        "microtext_ocr": microtext_ocr,
+    }
+    missing_machine_signals = (
+        [name for name, value in machine_signal_values.items() if value is None]
+        if client_type == "bank_counting_machine" else []
+    )
+    colour_shift_failed = any(
+        check.get("required") and check.get("status") != "pass"
+        for check in paired_feature_checks.values()
+    )
+    screening_complete = complete and not rejected and not missing_machine_signals and not colour_shift_failed
     if rejected:
         verdict, risk_level = "invalid_input", "invalid_input"
     elif confidence >= 0.65:
         verdict, risk_level = "likely_counterfeit", "high"
-    elif confidence >= 0.35:
+    elif not screening_complete or confidence >= 0.35:
         verdict, risk_level = "manual_review", "review"
     else:
         verdict, risk_level = "likely_genuine", "low"
-    complete = {"front", "back", "uv"}.issubset(results)
     response = {
         "inspection_id": str(uuid.uuid4()),
         "verdict": verdict,
         "risk_level": risk_level,
         "confidence": round(confidence, 4),
         "denomination": denomination,
+        "client_type": client_type,
         "captures_received": list(results),
         "captures_rejected": rejected,
-        "screening_complete": complete and not rejected,
-        "required_recaptures": [name for name in ("front", "back", "uv") if name not in results] + rejected,
+        "screening_complete": screening_complete,
+        "required_recaptures": [name for name in sorted(required_captures) if name not in results] + rejected,
+        "missing_machine_signals": missing_machine_signals,
         "capture_results": results,
+        "paired_feature_checks": paired_feature_checks,
         "deployment_contract": {
             "clients": ["mobile_app", "bank_counting_machine", "point_of_sale"],
             "transport": "multipart HTTPS API",
+            "controlled_lane_channels": ["rgb_front", "rgb_back", "uv", "transmitted", "tilt_rgb", "ir_optional"],
+            "hardware_signals": ["physical_dimensions", "thickness", "magnetic_thread", "double_feed"],
+            "decision_policy": "reject_or_manual_review_on_missing_required_channel",
             "certification": "screening_only unless certified specimen integration is configured",
         },
     }

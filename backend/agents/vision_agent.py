@@ -108,8 +108,12 @@ class VisionAgent:
 
         # CLIP and geometry jointly establish that the input is plausibly a
         # banknote. Generic object detections are never accepted as currency.
+        capture_context = context or {}
+        capture_mode = str(capture_context.get("capture_mode", "rgb")).lower().strip()
         clip_result = self._clip.score(note_crop)
-        candidate = validate_currency_candidate(image, note_crop, detection, clip_result)
+        candidate = validate_currency_candidate(
+            image, note_crop, detection, clip_result, capture_mode=capture_mode
+        )
         if not candidate["is_currency_candidate"]:
             return {
                 "agent": "vision",
@@ -134,20 +138,45 @@ class VisionAgent:
                 ],
             }
 
-        # Step 2: EfficientNet-B0 classification per region
         regions = detection.get("regions", {})
+        security_features = inspect_security_features(
+            regions,
+            capture_mode=capture_mode,
+            expected_denomination=capture_context.get("denomination"),
+            supplied_serial=capture_context.get("serial_number"),
+            supplied_microtext=capture_context.get("microtext_ocr"),
+            machine_signals=capture_context,
+        )
+        if capture_mode in {"uv", "ir", "transmitted"}:
+            return {
+                "agent": "vision",
+                "verdict": "sensor_evidence_only",
+                "model_confidence": 0.0,
+                "sensor_capture_only": True,
+                "detection": {
+                    "note_detected": detection["detected"],
+                    "detection_confidence": detection["confidence"],
+                    "detector_type": detection.get("detector_type"),
+                    "note_dimensions": detection.get("note_dimensions"),
+                },
+                "candidate_validation": candidate,
+                "security_features": security_features,
+                "classification": {"model_available": False, "skipped_reason": f"{capture_mode}_is_not_rgb_model_input"},
+                "clip": clip_result,
+                "response_language": normalize_language(language),
+                "explanation": f"{capture_mode.upper()} capture recorded as sensor evidence; RGB authenticity classification was intentionally skipped.",
+                "techniques_used": [
+                    "Currency candidate validation",
+                    "Controlled-lane sensor evidence",
+                    "RBI feature specification checks",
+                ],
+            }
+
+        # Step 2: EfficientNet-B0 classification per region
         classification = self._classifier.classify_all_regions(regions)
 
         # Step 3: Forensic analysis (ELA + FFT + NPR)
         forensics = self._forensics.analyze(note_crop)
-
-        capture_context = context or {}
-        security_features = inspect_security_features(
-            regions,
-            capture_mode=str(capture_context.get("capture_mode", "rgb")),
-            expected_denomination=capture_context.get("denomination"),
-            supplied_serial=capture_context.get("serial_number"),
-        )
 
         # Step 4: Grad-CAM explainability
         gradcam_result = None

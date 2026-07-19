@@ -22,14 +22,19 @@ logger = logging.getLogger(__name__)
 
 
 CURRENCY_REGIONS = {
-    "security_thread": {"x1": 0.35, "y1": 0.05, "x2": 0.40, "y2": 0.95},
-    "micro_lettering": {"x1": 0.15, "y1": 0.30, "x2": 0.85, "y2": 0.45},
-    "serial_number": {"x1": 0.05, "y1": 0.05, "x2": 0.40, "y2": 0.20},
-    "watermark": {"x1": 0.60, "y1": 0.10, "x2": 0.95, "y2": 0.70},
+    "security_thread": {"x1": 0.52, "y1": 0.04, "x2": 0.62, "y2": 0.96},
+    "micro_lettering": {"x1": 0.28, "y1": 0.52, "x2": 0.68, "y2": 0.82},
+    "serial_number": {"x1": 0.04, "y1": 0.04, "x2": 0.43, "y2": 0.22},
+    "serial_number_secondary": {"x1": 0.56, "y1": 0.76, "x2": 0.97, "y2": 0.96},
+    "watermark": {"x1": 0.70, "y1": 0.08, "x2": 0.96, "y2": 0.72},
     "latent_image": {"x1": 0.05, "y1": 0.55, "x2": 0.20, "y2": 0.80},
     "color_shifting_ink": {"x1": 0.75, "y1": 0.70, "x2": 0.95, "y2": 0.95},
-    "portrait": {"x1": 0.45, "y1": 0.10, "x2": 0.80, "y2": 0.85},
+    "portrait": {"x1": 0.30, "y1": 0.10, "x2": 0.72, "y2": 0.88},
     "denomination": {"x1": 0.05, "y1": 0.70, "x2": 0.25, "y2": 0.95},
+    "see_through_register": {"x1": 0.01, "y1": 0.08, "x2": 0.20, "y2": 0.42},
+    "bleed_lines_left": {"x1": 0.00, "y1": 0.10, "x2": 0.10, "y2": 0.92},
+    "bleed_lines_right": {"x1": 0.90, "y1": 0.10, "x2": 1.00, "y2": 0.92},
+    "identification_mark": {"x1": 0.74, "y1": 0.48, "x2": 0.96, "y2": 0.78},
 }
 
 
@@ -210,7 +215,7 @@ class CurrencyDetector:
     def _extract_regions(self, note_crop: np.ndarray) -> dict[str, np.ndarray]:
         """Extract regions of interest from the cropped note image."""
         h, w = note_crop.shape[:2]
-        regions = {}
+        regions = {"full_note": note_crop}
 
         for region_name, coords in CURRENCY_REGIONS.items():
             x1 = int(coords["x1"] * w)
