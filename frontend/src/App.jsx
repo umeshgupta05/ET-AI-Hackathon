@@ -1064,7 +1064,9 @@ export default function App() {
         setIsTranscribing(true);
         try {
           const transcription = await transcribeVoice(blob, language);
-          if (transcription.transcript) setInputText(transcription.transcript);
+          if (transcription.english_transcript || transcription.transcript) {
+            setInputText(transcription.english_transcript || transcription.transcript);
+          }
         } catch (error) {
           addMessage("ai", `${t("transcriptionFailed")}: ${error.message}`);
         } finally {

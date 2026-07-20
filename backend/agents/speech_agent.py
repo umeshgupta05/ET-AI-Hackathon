@@ -44,7 +44,7 @@ class SpeechAgent:
         self._initialized = True
         logger.info(" Speech Agent ready (Whisper + WavLM)")
 
-    async def analyze(self, audio_bytes: bytes) -> dict:
+    async def analyze(self, audio_bytes: bytes, language: str = "en") -> dict:
         """
         Full speech analysis: transcribe + detect spoofing.
 
@@ -65,7 +65,10 @@ class SpeechAgent:
         logger.info(" Speech Agent analyzing audio...")
 
         # Step 1: Transcribe + translate to English (NLP classifier is English-trained)
-        transcript = await self._transcriber.transcribe_and_translate(audio_bytes)
+        transcript = await self._transcriber.transcribe_and_translate(
+            audio_bytes,
+            language=language,
+        )
 
         # Step 2: Spoof detection
         # Load audio array for spoof detector
@@ -102,12 +105,13 @@ class SpeechAgent:
             "spoof_detection": spoof_result,
             "techniques_used": [
                 "Whisper (speech-to-text)",
+                "Whisper speech translation to English",
                 "WavLM/wav2vec2 (voice spoof detection)",
             ],
         }
 
     async def analyze_streaming(
-        self, audio_bytes: bytes, chunk_duration: float = 5.0
+        self, audio_bytes: bytes, chunk_duration: float = 5.0, language: str = "en"
     ) -> list[dict]:
         """
         Streaming analysis: transcribe in chunks with per-chunk spoof detection.
@@ -116,7 +120,11 @@ class SpeechAgent:
         if not self._initialized:
             await self.initialize()
 
-        chunks = await self._transcriber.transcribe_chunks(audio_bytes, chunk_duration)
+        chunks = await self._transcriber.transcribe_chunks(
+            audio_bytes,
+            chunk_duration,
+            language=language,
+        )
 
         # Add spoof detection to each chunk's time range
         # (simplified: run spoof on full audio, report per chunk)

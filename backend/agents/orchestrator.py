@@ -404,7 +404,10 @@ class FusionOrchestrator:
         try:
             logger.info("  → [LangGraph] Speech Agent")
             await self._speech_agent.initialize()
-            speech_result = await self._speech_agent.analyze(audio_bytes)
+            speech_result = await self._speech_agent.analyze(
+                audio_bytes,
+                language=state.get("response_language", "en"),
+            )
             transcript_data = speech_result.get("transcript", {})
             # english_text is produced by transcribe_and_translate(); use it
             # for the English-trained NLP classifier. original_text preserves
@@ -419,7 +422,7 @@ class FusionOrchestrator:
                 "transcript_length": len(english_text),
                 "detected_language": detected_lang,
                 "translated_to_english": transcript_data.get("translated_to_english", False),
-                "techniques": ["Whisper", "WavLM/AASIST"],
+                "techniques": ["Whisper", "Whisper translation", "WavLM/AASIST"],
                 "timestamp": time.time() - start_time,
             }
             return {
