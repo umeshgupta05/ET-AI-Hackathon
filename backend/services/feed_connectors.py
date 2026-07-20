@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import httpx
 
 from config import config
-from operational_store import (
+from stores.operational_store import (
     upsert_geospatial_incident,
     upsert_graph_edge,
     upsert_graph_entity,

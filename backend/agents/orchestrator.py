@@ -29,7 +29,7 @@ from agents.graph_agent import GraphAgent, get_graph_agent
 from agents.calibration import CalibrationLayer, get_calibration_layer
 from agents.ensemble import get_xgboost_fusion
 from config import config
-from intelligence import reporting_guidance
+from core.intelligence import reporting_guidance
 
 logger = logging.getLogger(__name__)
 

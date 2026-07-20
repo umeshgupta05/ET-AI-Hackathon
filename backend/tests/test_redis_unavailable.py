@@ -11,7 +11,7 @@ os.environ["REDIS_ENABLED"] = "true"
 os.environ["REDIS_URL"] = "redis://:change-me@127.0.0.1:6399/0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from redis_service import close_redis, initialize_redis
+from services.redis_service import close_redis, initialize_redis
 
 
 async def main() -> None:

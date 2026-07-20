@@ -14,7 +14,7 @@ from io import BytesIO
 from typing import Optional
 
 from config import config
-from localization import normalize_language
+from core.localization import normalize_language
 
 logger = logging.getLogger(__name__)
 

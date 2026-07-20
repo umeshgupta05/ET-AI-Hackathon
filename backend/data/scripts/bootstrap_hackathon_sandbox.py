@@ -30,7 +30,7 @@ SEED = 2026
 
 sys.path.insert(0, str(BACKEND_DIR))
 
-from operational_store import (  # noqa: E402
+from stores.operational_store import (  # noqa: E402
     init_operational_db,
     operational_counts,
     operational_provenance_counts,

@@ -54,7 +54,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import config
 from agents.orchestrator import FusionOrchestrator
 from models.vision.currency_features import compare_tilt_captures
-from auth_store import (
+from stores.auth_store import (
     SUPPORTED_LANGUAGES,
     authenticate_user,
     create_access_token,
@@ -67,21 +67,21 @@ from auth_store import (
     revoke_tokens,
     update_user,
 )
-from intelligence import (
+from core.intelligence import (
     build_evidence_package,
     build_reporting_draft,
     command_center_plan,
     geospatial_overview,
     reporting_guidance,
 )
-from localization import normalize_language
-from analytics import get_analytics_tracker
-from broker import broker_status, close_broker, jobs_enabled, publish_job
-from evidence_store import evidence_store_status, mirror_case_evidence
-from feed_connectors import feed_status, poll_once, start_feed_pollers, stop_feed_pollers
-from job_store import create_job, fail_job, get_job, init_job_db
-from production_readiness import readiness_report, require_operational_integration
-from operational_store import (
+from core.localization import normalize_language
+from core.analytics import get_analytics_tracker
+from services.broker import broker_status, close_broker, jobs_enabled, publish_job
+from stores.evidence_store import evidence_store_status, mirror_case_evidence
+from services.feed_connectors import feed_status, poll_once, start_feed_pollers, stop_feed_pollers
+from stores.job_store import create_job, fail_job, get_job, init_job_db
+from core.production_readiness import readiness_report, require_operational_integration
+from stores.operational_store import (
     certified_currency_count,
     init_operational_db,
     operational_counts,
@@ -93,7 +93,7 @@ from operational_store import (
     upsert_graph_edge,
     upsert_graph_entity,
 )
-from realtime_safety import (
+from core.realtime_safety import (
     append_event as append_realtime_event,
     close_session as close_realtime_session,
     create_session as create_realtime_session,
@@ -104,14 +104,14 @@ from realtime_safety import (
     init_realtime_db,
     list_alerts,
 )
-from redis_service import (
+from services.redis_service import (
     close_redis,
     consume_rate_limit,
     initialize_redis,
     redis_status,
     reset_rate_limit,
 )
-from telemetry import configure_telemetry
+from core.telemetry import configure_telemetry
 
 # ─── Logging Setup ───────────────────────────────────────────────────────
 logging.basicConfig(

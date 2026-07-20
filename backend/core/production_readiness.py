@@ -40,7 +40,7 @@ def require_operational_integration(feature: str) -> None:
     if demo_intelligence_allowed():
         return
     try:
-        from operational_store import trusted_operational_counts
+        from stores.operational_store import trusted_operational_counts
 
         counts = trusted_operational_counts()
     except Exception:
@@ -86,7 +86,7 @@ def readiness_report(
         and _present(os.getenv("TWILIO_AUTH_TOKEN"))
         and _present(os.getenv("TWILIO_WEBHOOK_BASE_URL"))
     )
-    from evidence_store import evidence_store_status
+    from stores.evidence_store import evidence_store_status
 
     evidence_status = evidence_store_status()
 

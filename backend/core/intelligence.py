@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from operational_store import list_geospatial_incidents, save_reporting_draft
+from stores.operational_store import list_geospatial_incidents, save_reporting_draft
 
 
 INCIDENTS = [

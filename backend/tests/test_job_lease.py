@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from job_store import claim_job, create_job, fail_job, init_job_db, renew_lease
+from stores.job_store import claim_job, create_job, fail_job, init_job_db, renew_lease
 
 
 def main() -> None:

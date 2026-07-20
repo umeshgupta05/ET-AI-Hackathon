@@ -214,7 +214,7 @@ class GraphAgent:
                 logger.info("✅ GAT model initialized (4-head attention, 2 layers) — untrained")
 
         if not self._build_operational_graph():
-            from production_readiness import demo_intelligence_allowed
+            from core.production_readiness import demo_intelligence_allowed
 
             if demo_intelligence_allowed():
                 self._build_demo_graph()
@@ -230,7 +230,7 @@ class GraphAgent:
         if not HAS_NETWORKX:
             return False
         try:
-            from operational_store import list_graph_edges, list_graph_entities
+            from stores.operational_store import list_graph_edges, list_graph_entities
 
             entities = list_graph_entities()
             edges = list_graph_edges()
@@ -245,7 +245,7 @@ class GraphAgent:
             item.get("provenance_tier", "synthetic_sandbox")
             for item in [*entities, *edges]
         }
-        from production_readiness import demo_intelligence_allowed
+        from core.production_readiness import demo_intelligence_allowed
 
         if not demo_intelligence_allowed():
             entities = [item for item in entities if item.get("provenance_tier") == "authorized"]

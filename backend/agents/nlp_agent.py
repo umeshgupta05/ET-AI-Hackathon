@@ -13,7 +13,7 @@ import json
 import logging
 from typing import Optional
 
-from localization import localized_fallback, model_language_instruction, normalize_language
+from core.localization import localized_fallback, model_language_instruction, normalize_language
 
 from models.nlp.llm_client import get_llm_client
 from models.nlp.rag_engine import get_rag_engine

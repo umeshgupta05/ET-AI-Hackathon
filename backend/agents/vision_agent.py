@@ -20,7 +20,7 @@ import base64
 import logging
 from typing import Optional
 
-from localization import model_language_instruction, normalize_language
+from core.localization import model_language_instruction, normalize_language
 
 import cv2
 import numpy as np

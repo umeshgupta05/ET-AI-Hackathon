@@ -1,6 +1,6 @@
 import asyncio
 
-import realtime_safety
+from core import realtime_safety
 
 
 def test_realtime_risk_creates_privacy_preserving_alerts(tmp_path, monkeypatch):

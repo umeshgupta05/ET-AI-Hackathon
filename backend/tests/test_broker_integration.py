@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from broker import QUEUE_NAME, close_broker, connect, declare_topology, publish_job
+from services.broker import QUEUE_NAME, close_broker, connect, declare_topology, publish_job
 
 
 async def smoke() -> None:

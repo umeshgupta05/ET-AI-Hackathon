@@ -14,7 +14,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 os.environ["REDIS_ENABLED"] = "true"
 os.environ.setdefault("REDIS_URL", "redis://:change-me@localhost:16379/0")
 
-from redis_service import (
+from services.redis_service import (
     close_redis,
     consume_rate_limit,
     initialize_redis,

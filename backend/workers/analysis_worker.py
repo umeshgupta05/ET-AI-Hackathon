@@ -18,8 +18,8 @@ sys.path.insert(0, str(BACKEND_DIR))
 load_dotenv(BACKEND_DIR / ".env")
 
 from agents.orchestrator import FusionOrchestrator
-from broker import QUEUE_NAME, close_broker, connect, declare_topology, publish_job
-from job_store import (
+from services.broker import QUEUE_NAME, close_broker, connect, declare_topology, publish_job
+from stores.job_store import (
     claim_job,
     complete_job,
     fail_job,
