@@ -9,11 +9,7 @@ Supports streaming transcription via chunked audio processing.
 """
 
 import logging
-import base64
-from typing import Optional
-from pathlib import Path
 
-import numpy as np
 
 from config import config
 from localization import normalize_language
@@ -369,15 +365,16 @@ class Transcriber:
             if len(chunk) < sample_rate * 0.5:  # Skip chunks < 0.5s
                 continue
 
+
             # Convert chunk to wav bytes
             chunk_buffer = BytesIO()
             sf.write(chunk_buffer, chunk, sample_rate, format="WAV")
             chunk_bytes = chunk_buffer.getvalue()
 
-        result = await self.transcribe(chunk_bytes, use_groq=self._groq_available)
-        result["chunk_start"] = round(start / sample_rate, 2)
-        result["chunk_end"] = round(end / sample_rate, 2)
-        chunks.append(result)
+            result = await self.transcribe(chunk_bytes, use_groq=self._groq_available)
+            result["chunk_start"] = round(start / sample_rate, 2)
+            result["chunk_end"] = round(end / sample_rate, 2)
+            chunks.append(result)
 
         return chunks
 
