@@ -144,16 +144,32 @@ def _extract_region_images(note: Image.Image) -> list[Image.Image]:
 class CurrencyDataset(Dataset):
     """Supervised real-note dataset returning the same region bag used in inference."""
 
-    def __init__(self, image_paths, labels, transform=None):
+    def __init__(self, image_paths, labels, transform=None, synthetic_mask=None):
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform or val_transform
+        self.synthetic_mask = synthetic_mask
 
     def __len__(self):
         return len(self.image_paths)
 
     def __getitem__(self, idx):
         note = _rectify_note(self.image_paths[idx])
+        
+        # Inject synthetic novelty/specimen text
+        if self.synthetic_mask and self.synthetic_mask[idx]:
+            import random
+            from PIL import ImageDraw
+            text = random.choice(["SPECIMEN", "KALPANIK BANK", "CHILDREN BANK", "400", "FOR PROJECT TESTING"])
+            txt_img = Image.new('RGBA', (150, 20), (255, 255, 255, 0))
+            d = ImageDraw.Draw(txt_img)
+            d.text((5, 5), text, fill=(220, 0, 0, 200))
+            # Scale up the text image and paste it across the center
+            scale_width = int(note.width * 0.9)
+            scale_height = int(scale_width * (20/150))
+            txt_img = txt_img.resize((scale_width, scale_height), Image.NEAREST)
+            note.paste(txt_img, (int(note.width * 0.05), note.height // 2 - scale_height // 2), txt_img)
+
         regions = torch.stack([self.transform(region) for region in _extract_region_images(note)])
         return regions, self.labels[idx]
 
@@ -365,7 +381,21 @@ def train_supervised(
     print("Phase 2: Supervised Fine-tuning")
     print("=" * 50)
 
-    train_dataset = CurrencyDataset(train_paths, train_labels, train_transform)
+    # Generate synthetic training examples from genuine ones
+    genuine_indices = [i for i, label in enumerate(train_labels) if label == 0]
+    synthetic_count = int(len(genuine_indices) * 0.4) # Add 40% more as synthetic fakes
+    
+    import random
+    selected_for_synthetic = random.sample(genuine_indices, min(synthetic_count, len(genuine_indices)))
+    
+    synth_paths = [train_paths[i] for i in selected_for_synthetic]
+    synth_labels = [1] * len(synth_paths) # Force counterfeit label
+    
+    extended_train_paths = list(train_paths) + synth_paths
+    extended_train_labels = list(train_labels) + synth_labels
+    synthetic_mask = [False] * len(train_paths) + [True] * len(synth_paths)
+
+    train_dataset = CurrencyDataset(extended_train_paths, extended_train_labels, train_transform, synthetic_mask=synthetic_mask)
     val_dataset = CurrencyDataset(val_paths, val_labels, val_transform)
 
     train_loader = DataLoader(dataset=train_dataset, batch_size=SUPERVISED_BATCH_SIZE, shuffle=True, num_workers=0)

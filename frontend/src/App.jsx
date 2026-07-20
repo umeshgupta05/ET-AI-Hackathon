@@ -1229,12 +1229,18 @@ export default function App() {
     }
   };
 
+  const stopVerdictSpeech = () => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
   const listenToVerdict = (result) => {
     if (!("speechSynthesis" in window)) {
       addMessage("ai", t("speechUnsupported"));
       return;
     }
-    window.speechSynthesis.cancel();
+    stopVerdictSpeech();
     const confidence = Math.round((result.confidence || 0) * 100);
     const reasoning = result.agent_results?.nlp?.reasoning || t("reviewGuidance");
     const guidedActions = result.guided_reporting?.immediate_actions?.slice(0, 2).join(" ");
@@ -1270,6 +1276,7 @@ export default function App() {
         onLogout={() => { logoutUser().catch(() => setAccessToken(null)).finally(() => setUser(null)); }}
         showLiveScan={viewMode !== "analysis" || messages.length > 0}
         onOpenLiveScan={() => {
+          stopVerdictSpeech();
           setViewMode("analysis");
           setMessages([]);
           setActiveResult(null);
