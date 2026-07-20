@@ -49,19 +49,73 @@ import {
 
 const CommandCentre = lazy(() => import("./CommandCentre"));
 
-function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfileUpdated }) {
+const GUEST_HISTORY_KEY = "fraud_shield_guest_history";
+
+function loadGuestHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(GUEST_HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveGuestHistoryItem(item) {
+  const stored = loadGuestHistory();
+  localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify([item, ...stored].slice(0, 50)));
+}
+
+function historyMatchesQuery(item, query) {
+  if (!query) return true;
+  const haystack = [
+    item.case_type,
+    item.verdict,
+    item.risk_level,
+    item.query,
+    item.summary,
+    item.result?.original_text,
+    item.result?.text,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query.toLowerCase());
+}
+
+function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfileUpdated, onOpenHistoryItem }) {
   const { t } = useTranslation();
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [preferredLanguage, setPreferredLanguage] = useState(user?.preferred_language || language);
   const [history, setHistory] = useState([]);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const showHistoryPanel = mode === "profile" || mode === "history";
+
   useEffect(() => {
-    if (mode === "profile") getHistory().then((data) => setHistory(data.items || [])).catch(() => setHistory([]));
-  }, [mode]);
+    if (!showHistoryPanel) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    const load = async () => {
+      try {
+        if (user) {
+          const data = await getHistory();
+          if (!cancelled) setHistory(data.items || []);
+        } else if (!cancelled) {
+          setHistory(loadGuestHistory());
+        }
+      } catch {
+        if (!cancelled) setHistory(user ? [] : loadGuestHistory());
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [mode, user, showHistoryPanel]);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -86,32 +140,81 @@ function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfi
     }
   };
 
+  const filteredHistory = history.filter((item) => historyMatchesQuery(item, historyQuery.trim()));
+  const dialogTitle =
+    mode === "login" ? t("login")
+      : mode === "register" ? t("createAccount")
+        : mode === "history" ? t("searchHistory")
+          : t("profileHistory");
+
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="account-dialog" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+      <section
+        className={`account-dialog${mode === "history" ? " account-dialog--history" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="dialog-header">
           <div>
-            <div className="section-header">{t("secureAccount")}</div>
-            <h2>{mode === "login" ? t("login") : mode === "register" ? t("createAccount") : t("profileHistory")}</h2>
+            <div className="section-header">{mode === "history" ? t("caseHistory") : t("secureAccount")}</div>
+            <h2>{dialogTitle}</h2>
           </div>
           <button className="input-btn" onClick={onClose} title={t("close")} aria-label={t("close")}><SvgIcon name="close" /></button>
         </div>
-        <form className="account-form" onSubmit={submit}>
-          {mode !== "login" && <label>{t("name")}<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} /></label>}
-          {mode !== "profile" && <label>{t("email")}<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>}
-          {mode !== "profile" && <label>{t("password")}<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></label>}
-          {mode !== "login" && <label>{t("preferredLanguage")}<LanguageSelect value={preferredLanguage} onChange={setPreferredLanguage} /></label>}
-          {error && <div className="form-error">{error}</div>}
-          <button className="primary-command" type="submit" disabled={busy}>{busy ? t("pleaseWait") : mode === "profile" ? t("saveProfile") : mode === "login" ? t("login") : t("createAccount")}</button>
-        </form>
-        {mode === "profile" && (
-          <div className="case-history">
-            <div className="section-header">{t("caseHistory")}</div>
-            {history.length === 0 ? <p>{t("noCases")}</p> : history.slice(0, 8).map((item) => (
-              <div className="history-row" key={item.id}>
-                <span>{item.case_type}</span><strong>{item.risk_level}</strong><time>{new Date(item.created_at).toLocaleString()}</time>
-              </div>
-            ))}
+        {mode !== "history" && (
+          <form className="account-form" onSubmit={submit}>
+            {mode !== "login" && <label>{t("name")}<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} /></label>}
+            {mode !== "profile" && <label>{t("email")}<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>}
+            {mode !== "profile" && <label>{t("password")}<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></label>}
+            {mode !== "login" && <label>{t("preferredLanguage")}<LanguageSelect value={preferredLanguage} onChange={setPreferredLanguage} /></label>}
+            {error && <div className="form-error">{error}</div>}
+            <button className="primary-command" type="submit" disabled={busy}>{busy ? t("pleaseWait") : mode === "profile" ? t("saveProfile") : mode === "login" ? t("login") : t("createAccount")}</button>
+          </form>
+        )}
+        {showHistoryPanel && (
+          <div className={`case-history${mode === "history" ? " case-history--standalone" : ""}`}>
+            {mode !== "history" && <div className="section-header">{t("caseHistory")}</div>}
+            <label className="history-search">
+              <span className="sr-only">{t("searchHistory")}</span>
+              <input
+                type="search"
+                value={historyQuery}
+                onChange={(e) => setHistoryQuery(e.target.value)}
+                placeholder={t("searchHistoryPlaceholder")}
+              />
+            </label>
+            {!user && <p className="history-source-hint">{t("guestHistoryHint")}</p>}
+            {user && <p className="history-source-hint">{t("accountHistoryHint")}</p>}
+            {historyLoading ? (
+              <p>{t("pleaseWait")}</p>
+            ) : filteredHistory.length === 0 ? (
+              <p>{t("noCases")}</p>
+            ) : (
+              (mode === "history" ? filteredHistory : filteredHistory.slice(0, 8)).map((item) => (
+                <button
+                  type="button"
+                  className="history-row history-row--action"
+                  key={item.id}
+                  onClick={() => {
+                    if (item.result && onOpenHistoryItem) {
+                      onOpenHistoryItem(item);
+                      onClose();
+                    }
+                  }}
+                  disabled={!item.result}
+                >
+                  <span>{item.case_type || t("unknown")}</span>
+                  <strong>{item.risk_level || item.verdict || t("unknown")}</strong>
+                  {(item.query || item.result?.original_text || item.result?.text) && (
+                    <em className="history-row__query">
+                      {item.query || item.result?.original_text || item.result?.text}
+                    </em>
+                  )}
+                  <time>{new Date(item.created_at).toLocaleString()}</time>
+                </button>
+              ))
+            )}
           </div>
         )}
       </section>
@@ -174,6 +277,7 @@ function Header({
   onShowLogin,
   onShowRegister,
   onShowProfile,
+  onShowHistory,
   onLogout,
   showLiveScan,
   onOpenLiveScan,
@@ -181,7 +285,7 @@ function Header({
   const { t } = useTranslation();
   return (
     <header className="header">
-      <div className="header__logo">
+      <button className="header__logo header__logo--button" type="button" onClick={onOpenLiveScan} title={t("backToLiveScan")}>
         <div className="header__icon nav-logo-mark">
           <SvgIcon name="shield" />
         </div>
@@ -189,14 +293,18 @@ function Header({
           <div className="header__title">{t("appTitle")}</div>
           <div className="header__subtitle">{t("appSubtitle")}</div>
         </div>
-      </div>
+      </button>
       <div className="header__actions">
         {showLiveScan && (
           <button className="header__live-scan" type="button" onClick={onOpenLiveScan}>
             <ScanLine size={17} />
-            <span>{t("back")} · {t("welcomeTitle")}</span>
+            <span>{t("backToLiveScan")}</span>
           </button>
         )}
+        <button className="header__live-scan header__history-btn" type="button" onClick={onShowHistory}>
+          <SvgIcon name="clock" />
+          <span>{t("searchHistory")}</span>
+        </button>
         <div className={`live-status live-status--${liveStatus}`}>
           <span />
           {liveStatus === "live"
@@ -976,6 +1084,22 @@ export default function App() {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       addMessage("ai", "result", result);
       setActiveResult(result);
+      
+      // Guest History Saving (localStorage); logged-in users are persisted by the API
+      if (!user) {
+        saveGuestHistoryItem({
+          id: Date.now().toString(),
+          case_type: result.verdict === "scam" || result.risk_level === "high" || result.risk_level === "critical"
+            ? "Fraud Attempt"
+            : "Benign Check",
+          verdict: result.verdict || result.final_verdict || null,
+          risk_level: result.risk_level || (result.verdict === "scam" ? "HIGH" : "LOW"),
+          confidence: result.confidence ?? null,
+          query: userMsg,
+          created_at: new Date().toISOString(),
+          result,
+        });
+      }
     } catch (error) {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       addMessage(
@@ -1004,6 +1128,18 @@ export default function App() {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       setTrajectory(result.trajectory || []);
       addMessage("ai", "trajectory", result);
+      if (!user) {
+        saveGuestHistoryItem({
+          id: Date.now().toString(),
+          case_type: "Demo Scam Call",
+          verdict: result.final_verdict || result.verdict || null,
+          risk_level: result.risk_level || "HIGH",
+          confidence: result.confidence ?? null,
+          query: t("demoScamAnalyzing"),
+          created_at: new Date().toISOString(),
+          result,
+        });
+      }
     } catch {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       addMessage(
@@ -1027,6 +1163,18 @@ export default function App() {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       setTrajectory(result.trajectory || []);
       addMessage("ai", "trajectory", result);
+      if (!user) {
+        saveGuestHistoryItem({
+          id: Date.now().toString(),
+          case_type: "Demo Legitimate Call",
+          verdict: result.final_verdict || result.verdict || null,
+          risk_level: result.risk_level || "LOW",
+          confidence: result.confidence ?? null,
+          query: t("demoBenignAnalyzing"),
+          created_at: new Date().toISOString(),
+          result,
+        });
+      }
     } catch {
       setMessages((prev) => prev.filter((m) => m.content !== "loading"));
       addMessage(
@@ -1118,10 +1266,17 @@ export default function App() {
         onShowLogin={() => setDialogMode("login")}
         onShowRegister={() => setDialogMode("register")}
         onShowProfile={() => setDialogMode("profile")}
+        onShowHistory={() => setDialogMode("history")}
         onLogout={() => { logoutUser().catch(() => setAccessToken(null)).finally(() => setUser(null)); }}
-        showLiveScan={viewMode !== "analysis"}
+        showLiveScan={viewMode !== "analysis" || messages.length > 0}
         onOpenLiveScan={() => {
           setViewMode("analysis");
+          setMessages([]);
+          setActiveResult(null);
+          setTrajectory([]);
+          setImageFile(null);
+          setAudioFile(null);
+          setInputText("");
           window.scrollTo({ top: 0, behavior: "smooth" });
         }}
       />
@@ -1133,6 +1288,31 @@ export default function App() {
           onClose={() => setDialogMode(null)}
           onAuthenticated={setUser}
           onProfileUpdated={(updated) => { setUser(updated); changeLanguage(updated.preferred_language); }}
+          onOpenHistoryItem={(item) => {
+            setViewMode("analysis");
+            setImageFile(null);
+            setAudioFile(null);
+            setInputText("");
+            const query =
+              item.query
+              || item.result?.original_text
+              || item.result?.text
+              || item.case_type
+              || t("caseHistory");
+            const isTrajectory = Boolean(item.result?.trajectory);
+            setTrajectory(item.result?.trajectory || []);
+            setMessages([
+              { role: "user", content: query, data: null, id: Date.now() },
+              {
+                role: "ai",
+                content: isTrajectory ? "trajectory" : "result",
+                data: item.result,
+                id: Date.now() + 1,
+              },
+            ]);
+            setActiveResult(isTrajectory ? null : item.result);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
         />
       )}
       <div className="view-toggle">
