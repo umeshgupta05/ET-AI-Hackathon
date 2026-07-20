@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from config import config
+from localization import normalize_language
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,72 @@ class Transcriber:
 
         raise RuntimeError("No Whisper transcription available")
 
+    async def transcribe_and_translate(
+        self,
+        audio_data: bytes,
+        language: str = "en",
+        use_groq: bool = True,
+    ) -> dict:
+        """
+        Return both original-language transcription and English-normalized text.
+
+        The fraud text classifier/RAG stack is strongest in English, while the
+        citizen-facing UI should preserve what the user actually said.
+        """
+        source_language = normalize_language(language)
+        transcript = await self.transcribe(audio_data, language=source_language, use_groq=use_groq)
+        original_text = transcript.get("text", "").strip()
+        if source_language == "en":
+            transcript.update(
+                {
+                    "original_text": original_text,
+                    "english_text": original_text,
+                    "translation_provider": transcript.get("provider"),
+                    "translated_to_english": False,
+                    "analysis_language": "en",
+                }
+            )
+            return transcript
+
+        translated_text = ""
+        translation_provider = None
+        translation_error = None
+        if use_groq and self._groq_available:
+            try:
+                translation = await self._translate_groq(audio_data)
+                translated_text = translation.get("text", "").strip()
+                translation_provider = translation.get("provider")
+            except Exception as exc:
+                translation_error = str(exc)
+                logger.warning(f"Groq Whisper translation failed: {exc}")
+
+        if not translated_text and self._pipeline is None:
+            try:
+                self._initialize_local_pipeline()
+            except Exception as exc:
+                translation_error = translation_error or str(exc)
+
+        if not translated_text and self._pipeline:
+            try:
+                translation = await self._translate_local(audio_data, source_language)
+                translated_text = translation.get("text", "").strip()
+                translation_provider = translation.get("provider")
+            except Exception as exc:
+                translation_error = translation_error or str(exc)
+                logger.warning(f"Local Whisper translation failed: {exc}")
+
+        transcript.update(
+            {
+                "original_text": original_text,
+                "english_text": translated_text or original_text,
+                "translation_provider": translation_provider,
+                "translated_to_english": bool(translated_text and translated_text != original_text),
+                "analysis_language": "en",
+                "translation_error": translation_error,
+            }
+        )
+        return transcript
+
     async def _transcribe_groq(self, audio_data: bytes, language: str) -> dict:
         """Transcribe via Groq's free Whisper API endpoint."""
         import httpx
@@ -153,6 +220,30 @@ class Transcriber:
                 "provider": "groq",
             }
 
+    async def _translate_groq(self, audio_data: bytes) -> dict:
+        """Translate spoken audio to English via Groq's Whisper-compatible API."""
+        import httpx
+
+        url = f"{config.groq.base_url}/audio/translations"
+        headers = {"Authorization": f"Bearer {config.groq.api_key}"}
+        filename, content_type = self._audio_file_info(audio_data)
+        files = {"file": (filename, audio_data, content_type)}
+        data = {
+            "model": config.groq.whisper_model,
+            "response_format": "verbose_json",
+        }
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(url, headers=headers, files=files, data=data)
+            response.raise_for_status()
+            result = response.json()
+            return {
+                "text": result.get("text", "").strip(),
+                "language": "en",
+                "duration": result.get("duration", 0.0),
+                "provider": "groq_whisper_translation",
+            }
+
     @staticmethod
     def _audio_file_info(audio_data: bytes) -> tuple[str, str]:
         """Infer the container so the hosted Whisper API receives accurate metadata."""
@@ -186,6 +277,8 @@ class Transcriber:
         if len(audio_array.shape) > 1:
             audio_array = audio_array.mean(axis=1)
 
+        duration = len(audio_array) / sample_rate
+
         # Run pipeline
         result = self._pipeline(
             {"raw": audio_array, "sampling_rate": sample_rate},
@@ -204,15 +297,41 @@ class Transcriber:
                         "text": chunk.get("text", "").strip(),
                     }
                 )
-
-            duration = len(audio_array) / sample_rate
-
         return {
             "text": result.get("text", "").strip(),
             "segments": segments,
             "language": language,
             "duration": round(duration, 2),
             "provider": "local",
+        }
+
+    async def _translate_local(self, audio_data: bytes, language: str) -> dict:
+        """Translate speech to English with local Whisper when hosted translation is unavailable."""
+        import soundfile as sf
+        from io import BytesIO
+
+        buffer = BytesIO(audio_data)
+        try:
+            audio_array, sample_rate = sf.read(buffer)
+        except Exception:
+            import librosa
+
+            buffer.seek(0)
+            audio_array, sample_rate = librosa.load(buffer, sr=16000, mono=True)
+
+        if len(audio_array.shape) > 1:
+            audio_array = audio_array.mean(axis=1)
+
+        duration = len(audio_array) / sample_rate
+        result = self._pipeline(
+            {"raw": audio_array, "sampling_rate": sample_rate},
+            generate_kwargs={"language": language, "task": "translate"},
+        )
+        return {
+            "text": result.get("text", "").strip(),
+            "language": "en",
+            "duration": round(duration, 2),
+            "provider": "local_whisper_translation",
         }
 
     async def transcribe_chunks(
@@ -268,6 +387,8 @@ class Transcriber:
             "groq_available": self._groq_available,
             "local_model": "openai/whisper-base",
             "groq_model": config.groq.whisper_model,
+            "multilingual_input": True,
+            "english_normalization": "Groq Whisper translations with local Whisper fallback",
         }
 
 
