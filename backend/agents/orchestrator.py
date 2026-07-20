@@ -405,18 +405,28 @@ class FusionOrchestrator:
             logger.info("  → [LangGraph] Speech Agent")
             await self._speech_agent.initialize()
             speech_result = await self._speech_agent.analyze(audio_bytes)
-            transcript = speech_result.get("transcript", {}).get("text", "")
+            transcript_data = speech_result.get("transcript", {})
+            # english_text is produced by transcribe_and_translate(); use it
+            # for the English-trained NLP classifier. original_text preserves
+            # whatever the citizen actually said for UI display.
+            english_text = transcript_data.get("english_text", transcript_data.get("text", ""))
+            original_text = transcript_data.get("original_text", transcript_data.get("text", ""))
+            detected_lang = transcript_data.get("language", "en")
 
             trace_entry = {
                 "step": "speech_agent",
                 "spoof_score": speech_result.get("spoof_detection", {}).get("spoof_score"),
-                "transcript_length": len(transcript),
+                "transcript_length": len(english_text),
+                "detected_language": detected_lang,
+                "translated_to_english": transcript_data.get("translated_to_english", False),
                 "techniques": ["Whisper", "WavLM/AASIST"],
                 "timestamp": time.time() - start_time,
             }
             return {
                 "speech_result": speech_result,
-                "transcript_text": transcript or state.get("transcript_text", ""),
+                # NLP receives English; original stays for UI display
+                "transcript_text": english_text or state.get("transcript_text", ""),
+                "original_transcript_text": original_text,
                 "trace": state.get("trace", []) + [trace_entry],
             }
         except Exception as e:

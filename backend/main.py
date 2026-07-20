@@ -1018,11 +1018,14 @@ async def voice_transcribe(
         if not transcriber._initialized:
             await transcriber.initialize()
         audio_bytes = await _read_upload(audio, kind="audio")
-        result = await transcriber.transcribe(audio_bytes, language=language, use_groq=True)
+        result = await transcriber.transcribe_and_translate(audio_bytes, language=language, use_groq=True)
         return {
-            "transcript": result.get("text", ""),
+            "transcript": result.get("original_text", result.get("text", "")),
+            "english_transcript": result.get("english_text", result.get("text", "")),
             "detected_language": result.get("language", language),
+            "translated_to_english": result.get("translated_to_english", False),
             "provider": result.get("provider", "unknown"),
+            "translation_provider": result.get("translation_provider"),
             "segments": result.get("segments", []),
         }
     except HTTPException:

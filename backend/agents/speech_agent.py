@@ -64,8 +64,8 @@ class SpeechAgent:
 
         logger.info(" Speech Agent analyzing audio...")
 
-        # Step 1: Transcribe
-        transcript = await self._transcriber.transcribe(audio_bytes)
+        # Step 1: Transcribe + translate to English (NLP classifier is English-trained)
+        transcript = await self._transcriber.transcribe_and_translate(audio_bytes)
 
         # Step 2: Spoof detection
         # Load audio array for spoof detector
