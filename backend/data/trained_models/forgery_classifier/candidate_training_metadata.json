@@ -1,0 +1,117 @@
+{
+  "architecture": "EfficientNet-B0 + Multi-Region Transformer Attention",
+  "training_phases": [
+    "Real feature-crop SimCLR contrastive",
+    "Multi-region supervised fine-tuning"
+  ],
+  "training_mode": "smoke",
+  "contrastive_epochs": 1,
+  "supervised_epochs": 2,
+  "validation_metrics": {
+    "best_epoch": 1,
+    "accuracy": 0.8392857142857143,
+    "f1": 0.8421052631578947,
+    "precision": 0.8275862068965517,
+    "recall": 0.8571428571428571,
+    "roc_auc": 0.9183673469387755,
+    "confusion_matrix": [
+      [
+        23,
+        5
+      ],
+      [
+        4,
+        24
+      ]
+    ],
+    "counterfeit_false_accept_rate": 0.14285714285714285,
+    "genuine_false_reject_rate": 0.17857142857142858,
+    "per_denomination": {
+      "10": {
+        "count": 8,
+        "accuracy": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0
+      },
+      "20": {
+        "count": 8,
+        "accuracy": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0
+      },
+      "50": {
+        "count": 8,
+        "accuracy": 1.0,
+        "f1": 1.0,
+        "roc_auc": 1.0
+      },
+      "100": {
+        "count": 8,
+        "accuracy": 0.75,
+        "f1": 0.8,
+        "roc_auc": 1.0
+      },
+      "200": {
+        "count": 8,
+        "accuracy": 0.75,
+        "f1": 0.8,
+        "roc_auc": 1.0
+      },
+      "500": {
+        "count": 8,
+        "accuracy": 0.625,
+        "f1": 0.4,
+        "roc_auc": 0.5625
+      },
+      "2000": {
+        "count": 8,
+        "accuracy": 0.75,
+        "f1": 0.75,
+        "roc_auc": 0.875
+      }
+    }
+  },
+  "dataset_size": 1849,
+  "genuine_count": 934,
+  "counterfeit_count": 915,
+  "image_size": 224,
+  "feature_dim": 1280,
+  "region_names": [
+    "full_note",
+    "security_thread",
+    "micro_lettering",
+    "serial_number",
+    "serial_number_secondary",
+    "watermark",
+    "latent_image",
+    "color_shifting_ink",
+    "portrait",
+    "denomination",
+    "see_through_register",
+    "bleed_lines_left",
+    "bleed_lines_right",
+    "identification_mark"
+  ],
+  "feature_reference_count": 112,
+  "synthetic_currency_images": 0,
+  "deployment_quality_gate": {
+    "minimum_f1": 0.85,
+    "minimum_roc_auc": 0.9,
+    "passed": false,
+    "active_checkpoint_replaced": false,
+    "eligible_for_deployment": false,
+    "reason": "smoke runs cannot replace the active checkpoint"
+  },
+  "train_count": 112,
+  "validation_count": 56,
+  "split_method": "StratifiedGroupKFold(first fold, n_splits=5)",
+  "split_seed": 42,
+  "provenance": {
+    "manifest": "D:\\ET AI Hackathon\\backend\\data\\training\\currency\\source_manifest.json",
+    "source_dataset": "preetrank/indian-currency-real-vs-fake-notes-dataset",
+    "source_url": "https://www.kaggle.com/datasets/preetrank/indian-currency-real-vs-fake-notes-dataset",
+    "license": "CC BY-NC-SA 4.0",
+    "label_assurance": "Publisher-labelled research data; not RBI forensic certification"
+  },
+  "created_at": "2026-07-20T07:15:10.865290+00:00"
+}

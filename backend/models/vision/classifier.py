@@ -27,8 +27,11 @@ import torch.nn.functional as F
 from torchvision import transforms
 
 from config import config
+from models.vision.detector import CURRENCY_REGIONS
 
 logger = logging.getLogger(__name__)
+
+REGION_NAMES = ("full_note", *CURRENCY_REGIONS.keys())
 
 # Image preprocessing
 TRANSFORM = transforms.Compose([
@@ -171,11 +174,16 @@ class HybridForgeryClassifier:
 
         try:
             import timm
+            from pathlib import Path
 
-            # Load pretrained CNN backbone (EfficientNet-B0)
+            trained_path = Path(__file__).resolve().parent.parent.parent / "data" / "trained_models" / "forgery_classifier" / "model.pth"
+            use_pretrained_backbone = not trained_path.exists()
+
+            # Local fine-tuned checkpoints contain the backbone weights, so
+            # production startup must not depend on Hugging Face availability.
             self._backbone = timm.create_model(
                 self._backbone_name,
-                pretrained=True,
+                pretrained=use_pretrained_backbone,
                 num_classes=0,  # Remove classification head
                 global_pool="",  # Preserve 7x7 spatial tokens for attention
             )
@@ -211,9 +219,6 @@ class HybridForgeryClassifier:
             )
             self._classifier_head.to(self._device)
 
-            # Try loading fine-tuned weights
-            from pathlib import Path
-            trained_path = Path(__file__).resolve().parent.parent.parent / "data" / "trained_models" / "forgery_classifier" / "model.pth"
             if trained_path.exists():
                 try:
                     state = torch.load(str(trained_path), map_location=self._device, weights_only=True)
@@ -328,9 +333,22 @@ class HybridForgeryClassifier:
 
         region_inputs = []
         region_names = []
+        substituted_regions = []
+        fallback_region = regions.get("full_note")
+        if fallback_region is None or getattr(fallback_region, "size", 0) == 0:
+            fallback_region = next(
+                (img for img in regions.values() if img is not None and getattr(img, "size", 0) > 0),
+                None,
+            )
 
-        # Step 1: preprocess valid regions, then run one batched CNN pass.
-        for name, region_img in regions.items():
+        # Step 1: preprocess regions in the exact order used during training.
+        # Missing ROIs are represented by the full-note crop so the transformer
+        # always receives the same semantic token layout.
+        for name in REGION_NAMES:
+            region_img = regions.get(name)
+            if region_img is None or region_img.size == 0:
+                region_img = fallback_region
+                substituted_regions.append(name)
             if region_img is None or region_img.size == 0:
                 continue
             try:
@@ -412,6 +430,9 @@ class HybridForgeryClassifier:
             "fused_genuine_score": round(fused_genuine, 4),
             "verdict": overall,
             "suspicious_regions": suspicious,
+            "region_order": region_names,
+            "expected_region_order": list(REGION_NAMES),
+            "substituted_regions": substituted_regions,
             "cross_region_attention": True,  # flag that we used cross-region analysis
             "model_available": True,
         }
@@ -431,6 +452,7 @@ class HybridForgeryClassifier:
             "architecture": "Hybrid CNN-Transformer (2026 SOTA)",
             "backbone": f"{self._backbone_name} (ImageNet pretrained)",
             "attention": "Multi-head Transformer (8 heads, 2 layers)",
+            "region_order": list(REGION_NAMES),
             "techniques": [
                 "Transfer learning (ImageNet)",
                 "Transformer self-attention (cross-region)",

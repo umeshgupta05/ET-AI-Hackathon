@@ -1,0 +1,32 @@
+{
+  "artifact": "D:\\ET AI Hackathon\\backend\\data\\trained_models\\forgery_classifier\\currency_edge_model.pt",
+  "format": "TorchScript",
+  "input_shape": [
+    1,
+    14,
+    3,
+    224,
+    224
+  ],
+  "output": [
+    "genuine_probability",
+    "counterfeit_probability"
+  ],
+  "cpu_threads": 4,
+  "latency_ms": {
+    "median": 576.62,
+    "p95": 905.98
+  },
+  "sensor_contract": [
+    "rgb_front",
+    "rgb_back",
+    "uv",
+    "transmitted",
+    "tilt_rgb",
+    "ir_optional",
+    "magnetic",
+    "thickness"
+  ],
+  "claim_boundary": "Screening artifact; hardware calibration and certified specimens required before bank deployment",
+  "created_at": "2026-07-20T07:24:29.437593+00:00"
+}

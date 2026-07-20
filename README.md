@@ -6,7 +6,7 @@ ET AI Hackathon 2026, Problem Statement 6. This repository contains a working mu
 
 - Digital-arrest, impersonation, OTP/KYC, parcel, investment, and financial scam analysis.
 - Persistent real-time call sessions that combine accumulated call flow with caller verification, STIR/SHAKEN attestation, spoof-risk, video identity, payment pressure, and secrecy/urgency signals. High-risk events create signed, idempotent citizen/telecom/MHA alert records before transfer.
-- Currency-image screening with YOLO localization, EfficientNet/Transformer classification, CLIP, ELA, FFT, NPR, and Grad-CAM.
+- Currency-image screening with YOLO/geometry localization, fixed 14-region EfficientNet/Transformer classification, CLIP, ELA, FFT, NPR, Grad-CAM, and TorchScript edge export.
 - Dedicated front/back/UV currency inspection for INR 10, 20, 50, 100, 200, 500, and 2000, including non-currency rejection and explicit microprint, thread, serial, watermark, and UV capture results.
 - Audio transcription and spoof-risk signals with Whisper and WavLM/AASIST-style analysis.
 - Hybrid BM25 + dense RAG with cross-encoder reranking.
@@ -289,9 +289,9 @@ python backend\data\scripts\generate_text_dataset.py
 
 ### Currency
 
-Synthetic pattern images were removed. The preparation script selectively downloads a balanced subset of the publisher-labelled Indian Currency Real vs Fake Notes Dataset, validates dimensions/readability, rejects exact duplicates, and records SHA-256/provenance in `source_manifest.json`.
+Synthetic pattern images were removed. The preparation script selectively downloads publisher-labelled real/counterfeit note specimens from the Indian Currency Real vs Fake Notes Dataset, validates dimensions/readability, rejects exact duplicates, preserves visible feature detail, and records SHA-256/provenance in `source_manifest.json`.
 
-The installed research source currently lacks a verified INR 200 training stratum. The API accepts INR 200 captures and records the coverage gap, but it must not claim denomination-specific validation until certified examples are installed. RGB images never receive a fabricated UV result; UV is `not_captured` unless a separate UV capture is supplied.
+The current local manifest contains 934 genuine labelled notes, 915 counterfeit labelled notes, and 1,078 unlabelled real feature-reference crops across INR 10, 20, 50, 100, 200, 500, and 2000. RGB images never receive a fabricated UV result; UV is `not_captured` unless a separate UV capture is supplied.
 
 1. Put Kaggle credentials at `%USERPROFILE%\.kaggle\kaggle.json`.
 2. Run:
@@ -300,7 +300,7 @@ The installed research source currently lacks a verified INR 200 training stratu
 python backend\data\scripts\prepare_currency_dataset.py
 ```
 
-The current target is at least 500 images across INR 10, 20, 50, 100, 500, and 2000. Images and downloaded archives are Git-ignored; the source manifest and preparation code are tracked. Labels are publisher-provided research labels, not RBI or laboratory certifications. The source license is CC BY-NC-SA 4.0, so review its noncommercial/share-alike requirements before use.
+Images, feature crops, downloaded archives, and model weights are Git-ignored; source manifests, metadata, and preparation code are tracked. Labels are publisher-provided research labels, not RBI or laboratory certifications. The source license is CC BY-NC-SA 4.0, so review its noncommercial/share-alike requirements before use.
 
 ## Model Training
 
@@ -329,6 +329,7 @@ python backend\data\scripts\train_graph_model.py
 python backend\data\scripts\prepare_fusion_validation.py
 python backend\data\scripts\train_xgboost_fusion.py
 python backend\data\scripts\evaluate_text_benchmark.py
+python backend\data\scripts\export_currency_edge_model.py
 ```
 
 Training metadata is saved beside each model. Large weights are intentionally ignored by Git and must be generated locally. Full CPU-only training can take a long time.
@@ -432,12 +433,13 @@ The `needs_review` tier prevents borderline cases (0.30–0.45) from triggering 
 ## Current Data and Model Boundaries
 
 - Text training data is curated/template-generated; the separate Chakravyuh benchmark is test-only and never used for training.
-- Currency training uses 510 validated, deduplicated publisher-labelled research images in the current local preparation.
+- Currency training uses 1,849 validated publisher-labelled real note images in the current local preparation: 934 genuine and 915 counterfeit. It also uses 1,078 unlabelled real feature-reference crops for self-supervised contrastive learning only.
 - Token-protected certified currency specimen metadata can be ingested for production reference; without it, image verdicts explicitly remain screening-only.
 - Fixed UI text has complete checked-in coverage for 12 languages; Kimi generates explanations, indicators, and recommendations in the selected language at analysis time, with localized deterministic fallbacks.
 - The graph uses authorized ingested entities/edges when present; the 69-node demonstration network is fallback data and is blocked in strict production mode.
 - CLIP and XGBoost load lazily or fall back safely when artifacts are unavailable.
-- Current grouped currency validation: 93.9% accuracy, 93.5% F1, and 0.984 ROC-AUC. These are research-split metrics, not currency-certification accuracy.
+- Current grouped currency smoke validation on the real multi-region pipeline: 83.9% accuracy, 0.842 F1, and 0.918 ROC-AUC across a 56-image validation slice. The candidate checkpoint is preserved as `model_candidate.pth`; smoke runs cannot replace the active checkpoint. Full training must pass F1 >= 0.85 and ROC-AUC >= 0.90 before replacing `model.pth`.
+- Currency edge export is implemented as TorchScript with input shape `[1, 14, 3, 224, 224]`; latest CPU benchmark is 576.62 ms median and 905.98 ms p95 on four threads. The edge artifact is a screening prototype for controlled capture lanes; bank-counter deployment still requires calibrated RGB/UV/IR/transmitted-light hardware, magnetic/thickness sensors, certified specimens, and acceptance testing.
 - Current Chakravyuh test-only text result: 0.853 ROC-AUC, 0.746 F1, 95.7% precision, 61.1% recall, and 12.9% false-positive rate (4/31 benign) across 175 scenarios at the action threshold. Top category scores include OTP theft (F1: 0.957) and KYC fraud (F1: 0.902). The `needs_review` tier captures 8 borderline cases (7 scam, 1 benign). Regional-language subsets are too small for language-level claims.
 - Current fusion meta-learner: 1,382 labelled rows and 0.723 overall validation ROC-AUC. The deployment quality gate enables XGBoost only for image signatures (0.951 validation ROC-AUC); text, audio, and unseen combinations use weighted fallback.
 - Court admissibility and government deployment require authorized acquisition, retention, audit, privacy, accessibility, security review, human oversight, and independent validation.
