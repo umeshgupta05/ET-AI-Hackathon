@@ -52,7 +52,7 @@ def generate_audio(text: str, lang: str) -> bytes:
     return buf.read()
 
 
-async def test_transcribe_and_translate():
+async def run_multilingual_test():
     """Run the full multilingual transcription + translation test."""
     from models.speech.transcriber import get_transcriber
 
@@ -149,4 +149,4 @@ async def test_transcribe_and_translate():
 
 
 if __name__ == "__main__":
-    results = asyncio.run(test_transcribe_and_translate())
+    results = asyncio.run(run_multilingual_test())

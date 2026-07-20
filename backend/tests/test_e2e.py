@@ -5,7 +5,7 @@ import time
 
 BASE = "http://localhost:8000"
 
-def test(name, method, url, **kwargs):
+def run_request(name, method, url, **kwargs):
     try:
         r = getattr(requests, method)(url, timeout=90, **kwargs)
         status = r.status_code
@@ -29,7 +29,7 @@ print("=" * 60)
 
 # 1. Health
 print("\n--- Core Endpoints ---")
-data = test("Health Check", "get", f"{BASE}/api/health")
+data = run_request("Health Check", "get", f"{BASE}/api/health")
 if data:
     print(f"    Orchestrator: {data.get('agents',{}).get('orchestrator','?')}")
     topo = data.get('agents',{}).get('graph_topology',{})
@@ -38,12 +38,12 @@ if data:
 
 # 2. Demo endpoints
 print("\n--- Demo Endpoints ---")
-test("Scam Transcript", "get", f"{BASE}/api/demo/scam-transcript")
-test("Benign Transcript", "get", f"{BASE}/api/demo/benign-transcript")
+run_request("Scam Transcript", "get", f"{BASE}/api/demo/scam-transcript")
+run_request("Benign Transcript", "get", f"{BASE}/api/demo/benign-transcript")
 
 # 3. Text analysis (scam)
 print("\n--- Scam Text Analysis ---")
-data = test("Scam Text", "post", f"{BASE}/api/analyze/text", json={
+data = run_request("Scam Text", "post", f"{BASE}/api/analyze/text", json={
     "text": "This is Inspector Sharma from CBI. Your Aadhaar has been linked to money laundering. Transfer Rs 50,000 immediately or face digital arrest. Do not tell anyone."
 })
 if data:
@@ -58,7 +58,7 @@ if data:
 
 # 4. Legitimate text
 print("\n--- Legitimate Text Analysis ---")
-data = test("Safe Text", "post", f"{BASE}/api/analyze/text", json={
+data = run_request("Safe Text", "post", f"{BASE}/api/analyze/text", json={
     "text": "Thank you for calling SBI. Your account balance is Rs 1,50,000. Next EMI due July 15th. Visit your branch for queries."
 })
 if data:
@@ -68,7 +68,7 @@ if data:
 
 # 5. Turn-by-turn
 print("\n--- Turn-by-Turn Analysis ---")
-data = test("Turn Analysis", "post", f"{BASE}/api/analyze/turns", json={
+data = run_request("Turn Analysis", "post", f"{BASE}/api/analyze/turns", json={
     "turns": [
         "Hello, this is Inspector Sharma from CBI Cyber Cell.",
         "Your Aadhaar has been used for money laundering. An arrest warrant has been issued.",
@@ -83,20 +83,20 @@ if data:
 
 # 6. Graph
 print("\n--- Graph Endpoints ---")
-data = test("Graph Analysis", "get", f"{BASE}/api/graph/analyze")
+data = run_request("Graph Analysis", "get", f"{BASE}/api/graph/analyze")
 if data:
     print(f"    Risk Score: {data.get('network_risk_score')}")
     print(f"    High-risk nodes: {len(data.get('high_risk_nodes',[]))}")
 
-test("Graph Visualization", "get", f"{BASE}/api/graph/visualization")
+run_request("Graph Visualization", "get", f"{BASE}/api/graph/visualization")
 
 # 7. Realtime call flow and pre-transfer alerting
 print("\n--- Realtime Intervention ---")
-session = test("Start Realtime Session", "post", f"{BASE}/api/realtime/sessions", json={
+session = run_request("Start Realtime Session", "post", f"{BASE}/api/realtime/sessions", json={
     "channel": "web", "language": "en", "metadata": {"test": "e2e"}
 })
 if session:
-    event = test("High-risk Call Event", "post", f"{BASE}/api/realtime/sessions/{session['session_id']}/events", json={
+    event = run_request("High-risk Call Event", "post", f"{BASE}/api/realtime/sessions/{session['session_id']}/events", json={
         "transcript": "This is CBI. Do not tell anyone. Transfer money within five minutes or you will be arrested.",
         "caller_verification": "failed",
         "stir_shaken_attestation": "failed",
@@ -111,15 +111,15 @@ if session:
         assert {alert["destination"] for alert in event["alerts"]} == {"citizen", "telecom", "mha"}
         print(f"    Combined risk: {event['event']['combined_score']}")
         print(f"    Alert states: {[alert['status'] for alert in event['alerts']]}")
-    test("Close Realtime Session", "post", f"{BASE}/api/realtime/sessions/{session['session_id']}/close")
+    run_request("Close Realtime Session", "post", f"{BASE}/api/realtime/sessions/{session['session_id']}/close")
 
 # 8. Operational interfaces
 print("\n--- Operational Interfaces ---")
-test("Channel Capabilities", "get", f"{BASE}/api/channels")
-test("Hotspot Intelligence", "get", f"{BASE}/api/intelligence/hotspots")
-test("Command Centre", "get", f"{BASE}/api/intelligence/command-centre")
-test("Feed Connector Status", "get", f"{BASE}/api/feeds/status")
-test("Production Readiness", "get", f"{BASE}/api/readiness")
+run_request("Channel Capabilities", "get", f"{BASE}/api/channels")
+run_request("Hotspot Intelligence", "get", f"{BASE}/api/intelligence/hotspots")
+run_request("Command Centre", "get", f"{BASE}/api/intelligence/command-centre")
+run_request("Feed Connector Status", "get", f"{BASE}/api/feeds/status")
+run_request("Production Readiness", "get", f"{BASE}/api/readiness")
 
 print("\n" + "=" * 60)
 print("AUDIT COMPLETE")
