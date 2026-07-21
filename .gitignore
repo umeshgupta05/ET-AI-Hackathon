@@ -60,3 +60,10 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Runtime data (any location, not just backend/data/)
+**/data/*.db
+**/data/*.sqlite*
+**/data/app.db
+**/data/operational_intelligence.db
+**/data/realtime_safety.db

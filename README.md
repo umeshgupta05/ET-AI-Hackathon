@@ -58,6 +58,10 @@ Windows PowerShell commands are shown below. Run them from the repository root u
 
 ## Backend Setup
 
+> Requires PostgreSQL 16+ running locally, or `docker compose up -d postgres`.
+> Connection settings are in `.env.example` (`DATABASE_URL`).
+
+
 ```powershell
 cd "D:\ET AI Hackathon"
 python -m venv .venv
@@ -464,3 +468,6 @@ See [docs/PROBLEM_STATEMENT_CHECKLIST.md](docs/PROBLEM_STATEMENT_CHECKLIST.md) f
 - Redis shows `unavailable`: verify `docker compose ps redis`, the password in `REDIS_URL`, and `REDIS_ENABLED=true`.
 - RabbitMQ jobs return `503`: enable `ASYNC_JOBS_ENABLED`, start RabbitMQ and the worker, and verify the broker URL.
 - Kaggle authentication fails: verify `%USERPROFILE%\.kaggle\kaggle.json` and its key permissions.
+
+## License
+This project is licensed under the MIT License. Note that the Kaggle-sourced currency training dataset carries its own CC BY-NC-SA 4.0 license, as disclosed in `training_metadata.json`.
