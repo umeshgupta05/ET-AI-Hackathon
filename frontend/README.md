@@ -49,7 +49,8 @@ Vite prints the preview URL, normally `http://localhost:4173`.
 - Turn-by-turn confidence trajectory
 - Backend-issued real-time session and validated WebSocket status channel
 - Agent trace, model evidence, recommendations, and report guidance
-- Fraud graph and geospatial hotspot views
+- Threat Intelligence Command Centre (interactive D3 fraud graph and geospatial heatmap views)
+- Guest Case History UI (viewing history without full login)
 - Evidence export and browser verdict playback
 - Responsive interface with 152 checked strings across all 12 supported languages
 - Request-time localized Kimi explanations, recommendations, and turn-level reasoning
@@ -76,7 +77,8 @@ See the root [README](../README.md#optional-infrastructure) for setup, security 
 
 ```text
 src/App.jsx          Main application and workflows
-src/index.css        Responsive design system
+src/CommandCentre.jsx Threat Intelligence Command Centre
+src/index.css        Dark mode "Evidence Dossier" responsive design system
 src/utils/api.js     REST/auth client and API base configuration
 vite.config.js       Vite configuration
 ```
