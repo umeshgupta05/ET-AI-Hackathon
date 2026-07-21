@@ -57,9 +57,33 @@ function ForceGraph({ data }) {
     svg.selectAll("*").remove();
 
     const width = svgRef.current.clientWidth || 500;
-    const height = 400;
+    const height = 550;
 
     svg.attr("viewBox", `0 0 ${width} ${height}`);
+    
+    // Add zoom/pan capability
+    const g = svg.append("g");
+    const zoom = d3.zoom()
+      .scaleExtent([0.1, 8])
+      .on("zoom", (event) => {
+        g.attr("transform", event.transform);
+      });
+    svg.call(zoom);
+    
+    // Optional double-click to reset zoom
+    svg.on("dblclick.zoom", () => {
+      svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
+    });
+
+    // Add explanatory overlay hint
+    svg.append("text")
+      .attr("x", 16)
+      .attr("y", 24)
+      .text("🖱️ Drag to pan • Scroll to zoom • Double-click to reset")
+      .attr("font-family", "var(--font-sans, Inter)")
+      .attr("font-size", "12px")
+      .attr("fill", "#64748b")
+      .style("pointer-events", "none");
 
     const nodes = (data.nodes || []).map((n, i) => ({
       ...n,
@@ -85,7 +109,7 @@ function ForceGraph({ data }) {
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collision", d3.forceCollide(12));
 
-    const link = svg
+    const link = g
       .append("g")
       .selectAll("line")
       .data(links)
@@ -94,20 +118,11 @@ function ForceGraph({ data }) {
       .attr("stroke-opacity", 0.4)
       .attr("stroke-width", (d) => Math.max(1, d.weight));
 
-    const node = svg
+    const nodeGroup = g
       .append("g")
-      .selectAll("circle")
+      .selectAll("g")
       .data(nodes)
-      .join("circle")
-      .attr("r", (d) => 4 + (d.risk_score || 0.3) * 10)
-      .attr("fill", (d) => {
-        if (d.label === "scammer" || d.risk_score > 0.7) return "#dc2626";
-        if (d.label === "mule" || d.risk_score > 0.4) return "#ea580c";
-        if (d.label === "victim") return "#eab308";
-        return "#3b82f6";
-      })
-      .attr("stroke", "#fff")
-      .attr("stroke-width", 1.5)
+      .join("g")
       .attr("cursor", "pointer")
       .call(
         d3.drag()
@@ -127,7 +142,27 @@ function ForceGraph({ data }) {
           })
       );
 
-    node.append("title").text((d) => `${d.label || d.id} — Risk: ${((d.risk_score || 0) * 100).toFixed(0)}%`);
+    nodeGroup.append("circle")
+      .attr("r", (d) => 4 + (d.risk_score || 0.3) * 10)
+      .attr("fill", (d) => {
+        if (d.label === "scammer" || d.risk_score > 0.7) return "#dc2626";
+        if (d.label === "mule" || d.risk_score > 0.4) return "#ea580c";
+        if (d.label === "victim") return "#eab308";
+        return "#3b82f6";
+      })
+      .attr("stroke", "#fff")
+      .attr("stroke-width", 1.5);
+      
+    nodeGroup.append("text")
+      .text((d) => d.id || d.label)
+      .attr("font-size", 10)
+      .attr("font-family", "var(--font-mono)")
+      .attr("dx", (d) => 8 + (d.risk_score || 0.3) * 10)
+      .attr("dy", 4)
+      .attr("fill", "#475569")
+      .style("pointer-events", "none");
+
+    nodeGroup.append("title").text((d) => `${d.label || d.id} — Risk: ${((d.risk_score || 0) * 100).toFixed(0)}%`);
 
     simulation.on("tick", () => {
       link
@@ -135,13 +170,13 @@ function ForceGraph({ data }) {
         .attr("y1", (d) => d.source.y)
         .attr("x2", (d) => d.target.x)
         .attr("y2", (d) => d.target.y);
-      node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
+      nodeGroup.attr("transform", (d) => `translate(${d.x},${d.y})`);
     });
 
     return () => simulation.stop();
   }, [data]);
 
-  return <svg ref={svgRef} style={{ width: "100%", height: 400 }} />;
+  return <svg ref={svgRef} style={{ width: "100%", height: 550, touchAction: "none", cursor: "grab" }} />;
 }
 
 /* ── Main Component ── */
@@ -157,10 +192,22 @@ export default function CommandCentre() {
   useEffect(() => {
     async function loadAll() {
       setLoading(true);
+      let lat = null, lon = null;
+      if (navigator.geolocation) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 3000 });
+          });
+          lat = position.coords.latitude;
+          lon = position.coords.longitude;
+        } catch (e) {
+          console.warn("Geolocation skipped", e);
+        }
+      }
       try {
         const [feed, cmd, bench, graph] = await Promise.allSettled([
           getThreatFeed(),
-          getCommandCentre(),
+          getCommandCentre(lat, lon),
           getBenchmarks(),
           getGraphVisualization(),
         ]);

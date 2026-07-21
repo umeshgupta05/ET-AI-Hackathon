@@ -101,7 +101,6 @@ from core.realtime_safety import (
     ensure_alerts,
     get_session as get_realtime_session,
     get_transcript as get_realtime_transcript,
-    init_realtime_db,
     list_alerts,
 )
 from services.redis_service import (
@@ -133,7 +132,6 @@ async def lifespan(app: FastAPI):
     init_db()
     init_job_db()
     init_operational_db()
-    init_realtime_db()
     await initialize_redis()
     start_feed_pollers()
     jwt_secret = os.getenv("JWT_SECRET", "")
@@ -745,8 +743,8 @@ async def languages():
 
 
 @app.get("/api/history")
-async def history(user: dict = Depends(get_current_user)):
-    return {"items": get_history(user["id"])}
+async def history(query: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
+    return {"items": get_history(user["id"], search_query=query)}
 
 
 @app.get("/api/cases/{case_id}/evidence")

@@ -59,3 +59,5 @@ opentelemetry-api==1.31.1
 opentelemetry-sdk==1.31.1
 opentelemetry-exporter-otlp==1.31.1
 opentelemetry-instrumentation-fastapi==0.52b1
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.9

@@ -16,6 +16,7 @@ import {
   Network,
   Send,
   ScanLine,
+  Search,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -81,7 +82,41 @@ function historyMatchesQuery(item, query) {
   return haystack.includes(query.toLowerCase());
 }
 
-function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfileUpdated, onOpenHistoryItem }) {
+function getHistoryRisk(item) {
+  const value = String(item.risk_level || item.verdict || "unknown")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+
+  if (["critical", "high", "danger", "fraud", "scam", "scam_confirmed"].some((token) => value.includes(token))) {
+    return { label: item.risk_level || item.verdict || "High risk", tone: "danger", icon: "alert" };
+  }
+  if (["medium", "warning", "caution", "suspicious", "inconclusive"].some((token) => value.includes(token))) {
+    return { label: item.risk_level || item.verdict || "Needs review", tone: "warning", icon: "caution" };
+  }
+  if (["low", "safe", "clear", "verified", "benign"].some((token) => value.includes(token))) {
+    return { label: item.risk_level || item.verdict || "Low risk", tone: "safe", icon: "check" };
+  }
+  return { label: item.risk_level || item.verdict || "Unclassified", tone: "neutral", icon: "shield" };
+}
+
+function getHistoryPreview(item) {
+  return (
+    item.query ||
+    item.summary ||
+    item.result?.summary ||
+    item.result?.original_text ||
+    item.result?.text ||
+    "No preview is available for this analysis."
+  );
+}
+
+function getHistoryCaseId(item, index) {
+  const raw = item.case_id || item.id || item.result?.case_id || `${index + 1}`;
+  return `CASE-${String(raw).replace(/[^a-zA-Z0-9]/g, "").slice(-8).toUpperCase().padStart(4, "0")}`;
+}
+
+function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfileUpdated, onOpenHistoryItem, onSwitchMode }) {
   const { t } = useTranslation();
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState("");
@@ -93,29 +128,30 @@ function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfi
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const isAuthMode = mode === "login" || mode === "register";
   const showHistoryPanel = mode === "profile" || mode === "history";
 
   useEffect(() => {
     if (!showHistoryPanel) return;
     let cancelled = false;
     setHistoryLoading(true);
-    const load = async () => {
+    const timeoutId = setTimeout(async () => {
       try {
         if (user) {
-          const data = await getHistory();
+          const data = await getHistory(historyQuery);
           if (!cancelled) setHistory(data.items || []);
         } else if (!cancelled) {
-          setHistory(loadGuestHistory());
+          const localHist = loadGuestHistory();
+          setHistory(localHist.filter((item) => historyMatchesQuery(item, historyQuery.trim())));
         }
       } catch {
         if (!cancelled) setHistory(user ? [] : loadGuestHistory());
       } finally {
         if (!cancelled) setHistoryLoading(false);
       }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, [mode, user, showHistoryPanel]);
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timeoutId); };
+  }, [mode, user, showHistoryPanel, historyQuery]);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -127,20 +163,22 @@ function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfi
         onProfileUpdated(updated);
       } else {
         const payload = mode === "register"
-          ? await registerUser({ name, email, password, preferred_language: preferredLanguage })
-          : await loginUser({ email, password });
+          ? await registerUser({ name: name.trim(), email: email.trim(), password, preferred_language: preferredLanguage })
+          : await loginUser({ email: email.trim(), password });
         setAccessToken(payload.access_token);
         onAuthenticated(payload.user);
       }
       onClose();
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || "Unable to complete the request. Please try again.");
     } finally {
       setBusy(false);
     }
   };
 
-  const filteredHistory = history.filter((item) => historyMatchesQuery(item, historyQuery.trim()));
+  const filteredHistory = history;
+  const highRiskCount = history.filter((item) => getHistoryRisk(item).tone === "danger").length;
+  const visibleHistory = mode === "history" ? filteredHistory : filteredHistory.slice(0, 8);
   const dialogTitle =
     mode === "login" ? t("login")
       : mode === "register" ? t("createAccount")
@@ -150,70 +188,170 @@ function AccountDialog({ mode, user, language, onClose, onAuthenticated, onProfi
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section
-        className={`account-dialog${mode === "history" ? " account-dialog--history" : ""}`}
+        className={`account-dialog account-dialog--${mode}${isAuthMode ? " account-dialog--auth" : ""}`}
         role="dialog"
         aria-modal="true"
-        onMouseDown={(e) => e.stopPropagation()}
+        aria-labelledby="account-dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="dialog-header">
-          <div>
-            <div className="section-header">{mode === "history" ? t("caseHistory") : t("secureAccount")}</div>
-            <h2>{dialogTitle}</h2>
+        <button className="dialog-close" type="button" onClick={onClose} title={t("close")} aria-label={t("close")}>
+          <SvgIcon name="close" />
+        </button>
+
+        {isAuthMode && (
+          <div className="auth-shell">
+            <aside className="auth-hero" aria-hidden="true">
+              <div className="auth-hero__glow auth-hero__glow--one" />
+              <div className="auth-hero__glow auth-hero__glow--two" />
+              <div className="auth-hero__brand">
+                <span className="auth-hero__logo"><SvgIcon name="shield" /></span>
+                <span>Digital Public Safety Shield</span>
+              </div>
+              <div className="auth-hero__content">
+                <span className="auth-hero__eyebrow"><SvgIcon name="sparkle" /> AI-powered citizen protection</span>
+                <h2>{mode === "login" ? "Return to your secure command centre." : "Build your personal safety intelligence hub."}</h2>
+                <p>
+                  Save investigations, revisit evidence, and keep every fraud assessment securely linked to your account.
+                </p>
+                <div className="auth-benefits">
+                  <span><SvgIcon name="check" /> Encrypted account access</span>
+                  <span><SvgIcon name="clock" /> Synced case history</span>
+                  <span><SvgIcon name="brain" /> Personalized AI assistance</span>
+                </div>
+              </div>
+              <div className="auth-hero__signal">
+                <span className="auth-hero__pulse" /> Protection network online
+              </div>
+            </aside>
+
+            <div className="auth-panel">
+              <div className="auth-panel__header">
+                <div className="section-header">{t("secureAccount")}</div>
+                <h1 id="account-dialog-title">{dialogTitle}</h1>
+                <p>{mode === "login" ? "Sign in to continue your protected session." : "Create an account to securely preserve every case."}</p>
+              </div>
+
+              <form className="account-form account-form--auth" onSubmit={submit}>
+                {mode === "register" && (
+                  <label>
+                    <span>{t("name")}</span>
+                    <input value={name} onChange={(event) => setName(event.target.value)} required minLength={2} autoComplete="name" placeholder="Your full name" />
+                  </label>
+                )}
+                <label>
+                  <span>{t("email")}</span>
+                  <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" placeholder="you@example.com" />
+                </label>
+                <label>
+                  <span>{t("password")}</span>
+                  <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder="Minimum 8 characters" />
+                </label>
+                {mode === "register" && (
+                  <label>
+                    <span>{t("preferredLanguage")}</span>
+                    <LanguageSelect value={preferredLanguage} onChange={setPreferredLanguage} />
+                  </label>
+                )}
+                {error && <div className="form-error" role="alert"><SvgIcon name="alert" /> {error}</div>}
+                <button className="primary-command primary-command--auth" type="submit" disabled={busy}>
+                  <span>{busy ? t("pleaseWait") : mode === "login" ? t("login") : t("createAccount")}</span>
+                  {!busy && <span aria-hidden="true">→</span>}
+                </button>
+                <p className="auth-toggle">
+                  {mode === "login" ? "New to the Shield?" : "Already protected?"}
+                  <button type="button" onClick={() => onSwitchMode(mode === "login" ? "register" : "login")}>
+                    {mode === "login" ? t("createAccount") : t("login")}
+                  </button>
+                </p>
+              </form>
+            </div>
           </div>
-          <button className="input-btn" onClick={onClose} title={t("close")} aria-label={t("close")}><SvgIcon name="close" /></button>
-        </div>
-        {mode !== "history" && (
-          <form className="account-form" onSubmit={submit}>
-            {mode !== "login" && <label>{t("name")}<input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} /></label>}
-            {mode !== "profile" && <label>{t("email")}<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>}
-            {mode !== "profile" && <label>{t("password")}<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></label>}
-            {mode !== "login" && <label>{t("preferredLanguage")}<LanguageSelect value={preferredLanguage} onChange={setPreferredLanguage} /></label>}
-            {error && <div className="form-error">{error}</div>}
-            <button className="primary-command" type="submit" disabled={busy}>{busy ? t("pleaseWait") : mode === "profile" ? t("saveProfile") : mode === "login" ? t("login") : t("createAccount")}</button>
-          </form>
         )}
+
+        {mode === "profile" && (
+          <div className="profile-dialog__body">
+            <div className="dialog-header">
+              <div>
+                <div className="section-header">{t("secureAccount")}</div>
+                <h2 id="account-dialog-title">{dialogTitle}</h2>
+              </div>
+            </div>
+            <form className="account-form" onSubmit={submit}>
+              <label><span>{t("name")}</span><input value={name} onChange={(event) => setName(event.target.value)} required minLength={2} /></label>
+              <label><span>{t("preferredLanguage")}</span><LanguageSelect value={preferredLanguage} onChange={setPreferredLanguage} /></label>
+              {error && <div className="form-error" role="alert">{error}</div>}
+              <button className="primary-command" type="submit" disabled={busy}>{busy ? t("pleaseWait") : t("saveProfile")}</button>
+            </form>
+          </div>
+        )}
+
         {showHistoryPanel && (
           <div className={`case-history${mode === "history" ? " case-history--standalone" : ""}`}>
-            {mode !== "history" && <div className="section-header">{t("caseHistory")}</div>}
+            <div className="history-hero">
+              <div className="history-hero__copy">
+                <span className="history-hero__eyebrow"><SvgIcon name="clock" /> Investigation archive</span>
+                {mode === "history" && <h2 id="account-dialog-title">Your safety intelligence timeline</h2>}
+                <p>{user ? "Search and reopen every analysis securely saved to your account." : "Review analyses stored on this device during your guest session."}</p>
+              </div>
+              <div className="history-stats" aria-label="History summary">
+                <div><strong>{history.length}</strong><span>Total cases</span></div>
+                <div><strong>{highRiskCount}</strong><span>High risk</span></div>
+              </div>
+            </div>
+
             <label className="history-search">
+              <span className="history-search__icon"><SvgIcon name="search" /></span>
               <span className="sr-only">{t("searchHistory")}</span>
               <input
                 type="search"
                 value={historyQuery}
-                onChange={(e) => setHistoryQuery(e.target.value)}
+                onChange={(event) => setHistoryQuery(event.target.value)}
                 placeholder={t("searchHistoryPlaceholder")}
               />
+              {historyQuery && <button type="button" onClick={() => setHistoryQuery("")} aria-label="Clear history search"><SvgIcon name="close" /></button>}
             </label>
-            {!user && <p className="history-source-hint">{t("guestHistoryHint")}</p>}
-            {user && <p className="history-source-hint">{t("accountHistoryHint")}</p>}
+
             {historyLoading ? (
-              <p>{t("pleaseWait")}</p>
-            ) : filteredHistory.length === 0 ? (
-              <p>{t("noCases")}</p>
+              <div className="history-state"><span className="history-loader" /><strong>{t("pleaseWait")}</strong><p>Retrieving your protected case archive…</p></div>
+            ) : visibleHistory.length === 0 ? (
+              <div className="history-state"><span className="history-state__icon"><SvgIcon name="inbox" /></span><strong>{t("noCases")}</strong><p>{historyQuery ? "Try a different search term." : "Completed analyses will appear here."}</p></div>
             ) : (
-              (mode === "history" ? filteredHistory : filteredHistory.slice(0, 8)).map((item) => (
-                <button
-                  type="button"
-                  className="history-row history-row--action"
-                  key={item.id}
-                  onClick={() => {
-                    if (item.result && onOpenHistoryItem) {
-                      onOpenHistoryItem(item);
-                      onClose();
-                    }
-                  }}
-                  disabled={!item.result}
-                >
-                  <span>{item.case_type || t("unknown")}</span>
-                  <strong>{item.risk_level || item.verdict || t("unknown")}</strong>
-                  {(item.query || item.result?.original_text || item.result?.text) && (
-                    <em className="history-row__query">
-                      {item.query || item.result?.original_text || item.result?.text}
-                    </em>
-                  )}
-                  <time>{new Date(item.created_at).toLocaleString()}</time>
-                </button>
-              ))
+              <div className="history-grid">
+                {visibleHistory.map((item, index) => {
+                  const risk = getHistoryRisk(item);
+                  const preview = getHistoryPreview(item);
+                  const canOpen = Boolean(item.result && onOpenHistoryItem);
+                  return (
+                    <button
+                      type="button"
+                      className={`history-card history-card--${risk.tone}`}
+                      key={item.id || item.case_id || `${item.created_at}-${index}`}
+                      onClick={() => {
+                        if (canOpen) {
+                          onOpenHistoryItem(item);
+                          onClose();
+                        }
+                      }}
+                      disabled={!canOpen}
+                    >
+                      <span className="history-card__accent" />
+                      <span className="history-card__topline">
+                        <span className="history-card__type-icon"><SvgIcon name={risk.icon} /></span>
+                        <span className="history-card__identity">
+                          <strong>{item.case_type || "Fraud analysis"}</strong>
+                          <time>{item.created_at ? new Date(item.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "Date unavailable"}</time>
+                        </span>
+                        <span className={`history-risk history-risk--${risk.tone}`}>{risk.label}</span>
+                      </span>
+                      <span className="history-card__preview">{preview}</span>
+                      <span className="history-card__footer">
+                        <code>{getHistoryCaseId(item, index)}</code>
+                        <span>{canOpen ? "Open case" : "Preview unavailable"} {canOpen && "→"}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
@@ -242,6 +380,7 @@ function SvgIcon({ name, className = "svg-icon" }) {
     camera: Camera,
     user: UserRound,
     send: Send,
+    search: Search,
     close: X,
     clock: Clock3,
     sparkle: Sparkles,
@@ -1320,6 +1459,7 @@ export default function App() {
             setActiveResult(isTrajectory ? null : item.result);
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
+          onSwitchMode={setDialogMode}
         />
       )}
       <div className="view-toggle">

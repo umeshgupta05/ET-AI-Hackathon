@@ -11,80 +11,22 @@ import hashlib
 import hmac
 import json
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from stores.database import SessionLocal
+from stores.models import RealtimeSession, RealtimeEvent, AlertOutbox
 
-
-DB_PATH = Path(__file__).resolve().parent / "data" / "realtime_safety.db"
 ALERT_DESTINATIONS = ("citizen", "telecom", "mha")
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=15)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_realtime_db() -> None:
-    with _connect() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS realtime_sessions (
-                id TEXT PRIMARY KEY,
-                channel TEXT NOT NULL,
-                language TEXT NOT NULL,
-                status TEXT NOT NULL,
-                caller_hash TEXT,
-                participant_hash TEXT,
-                risk_score REAL NOT NULL,
-                risk_level TEXT NOT NULL,
-                event_count INTEGER NOT NULL,
-                started_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                closed_at TEXT,
-                metadata_json TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS realtime_events (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                sequence INTEGER NOT NULL,
-                transcript TEXT NOT NULL,
-                metadata_json TEXT NOT NULL,
-                signal_score REAL NOT NULL,
-                model_score REAL NOT NULL,
-                combined_score REAL NOT NULL,
-                reasons_json TEXT NOT NULL,
-                occurred_at TEXT NOT NULL,
-                evidence_hash TEXT NOT NULL,
-                UNIQUE(session_id, sequence)
-            );
-            CREATE TABLE IF NOT EXISTS alert_outbox (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                destination TEXT NOT NULL,
-                idempotency_key TEXT NOT NULL UNIQUE,
-                status TEXT NOT NULL,
-                attempt_count INTEGER NOT NULL,
-                payload_json TEXT NOT NULL,
-                payload_hash TEXT NOT NULL,
-                last_error TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_events_session ON realtime_events(session_id, sequence);
-            CREATE INDEX IF NOT EXISTS idx_alerts_session ON alert_outbox(session_id, created_at);
-            """
-        )
 
 
 def _keyed_hash(value: str | None) -> str | None:
@@ -107,23 +49,26 @@ def create_session(
     clean_metadata = dict(metadata or {})
     clean_metadata.pop("caller_id", None)
     clean_metadata.pop("participant_id", None)
-    with _connect() as conn:
-        conn.execute(
-            """INSERT INTO realtime_sessions
-               (id, channel, language, status, caller_hash, participant_hash,
-                risk_score, risk_level, event_count, started_at, updated_at, metadata_json)
-               VALUES (?, ?, ?, 'active', ?, ?, 0, 'safe', 0, ?, ?, ?)""",
-            (
-                session_id,
-                channel,
-                language,
-                _keyed_hash(caller_id),
-                _keyed_hash(participant_id),
-                now,
-                now,
-                json.dumps(clean_metadata, ensure_ascii=False),
-            ),
+    
+    with SessionLocal() as db:
+        new_session = RealtimeSession(
+            id=session_id,
+            channel=channel,
+            language=language,
+            status="active",
+            caller_hash=_keyed_hash(caller_id),
+            participant_hash=_keyed_hash(participant_id),
+            risk_score=0.0,
+            risk_level="safe",
+            event_count=0,
+            started_at=now,
+            updated_at=now,
+            metadata_json=clean_metadata
         )
+        db.add(new_session)
+        db.commit()
+        db.refresh(new_session)
+        
     return get_session(session_id)
 
 
@@ -192,59 +137,65 @@ def append_event(
     model_score: float,
     model_verdict: str,
 ) -> dict[str, Any]:
-    with _connect() as conn:
-        session = conn.execute("SELECT * FROM realtime_sessions WHERE id = ?", (session_id,)).fetchone()
+    with SessionLocal() as db:
+        session = db.query(RealtimeSession).filter(RealtimeSession.id == session_id).first()
         if not session:
             raise KeyError("Realtime session not found")
-        if session["status"] != "active":
+        if session.status != "active":
             raise ValueError("Realtime session is closed")
-        sequence = int(session["event_count"]) + 1
+        sequence = session.event_count + 1
 
-    clean_metadata = dict(metadata or {})
-    for key in ("caller_id", "participant_id", "destination_account", "phone_number", "account_id"):
-        if clean_metadata.get(key):
-            clean_metadata[f"{key}_hash"] = _keyed_hash(str(clean_metadata.pop(key)))
+        clean_metadata = dict(metadata or {})
+        for key in ("caller_id", "participant_id", "destination_account", "phone_number", "account_id"):
+            if clean_metadata.get(key):
+                clean_metadata[f"{key}_hash"] = _keyed_hash(str(clean_metadata.pop(key)))
 
-    signal_score, reasons = score_call_signals(clean_metadata)
-    model_score = max(0.0, min(1.0, float(model_score)))
-    # Content remains primary, but verified provider signals can move a live decision quickly.
-    combined = model_score * 0.68 + signal_score * 0.32
-    previous = float(session["risk_score"])
-    combined = max(combined, previous * 0.92)
-    level = _risk_level(combined)
-    occurred_at = str(clean_metadata.get("occurred_at") or _now())
-    event_id = str(uuid.uuid4())
-    evidence = {
-        "session_id": session_id,
-        "sequence": sequence,
-        "transcript": transcript,
-        "metadata": clean_metadata,
-        "signal_score": round(signal_score, 4),
-        "model_score": round(model_score, 4),
-        "model_verdict": model_verdict,
-        "combined_score": round(combined, 4),
-        "occurred_at": occurred_at,
-    }
-    evidence_hash = hashlib.sha256(
-        json.dumps(evidence, sort_keys=True, ensure_ascii=False).encode()
-    ).hexdigest()
-    with _connect() as conn:
-        conn.execute(
-            """INSERT INTO realtime_events
-               (id, session_id, sequence, transcript, metadata_json, signal_score,
-                model_score, combined_score, reasons_json, occurred_at, evidence_hash)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                event_id, session_id, sequence, transcript,
-                json.dumps(clean_metadata, ensure_ascii=False), signal_score,
-                model_score, combined, json.dumps(reasons), occurred_at, evidence_hash,
-            ),
+        signal_score, reasons = score_call_signals(clean_metadata)
+        model_score = max(0.0, min(1.0, float(model_score)))
+        # Content remains primary, but verified provider signals can move a live decision quickly.
+        combined = model_score * 0.68 + signal_score * 0.32
+        previous = session.risk_score
+        combined = max(combined, previous * 0.92)
+        level = _risk_level(combined)
+        occurred_at = str(clean_metadata.get("occurred_at") or _now())
+        event_id = str(uuid.uuid4())
+        evidence = {
+            "session_id": session_id,
+            "sequence": sequence,
+            "transcript": transcript,
+            "metadata": clean_metadata,
+            "signal_score": round(signal_score, 4),
+            "model_score": round(model_score, 4),
+            "model_verdict": model_verdict,
+            "combined_score": round(combined, 4),
+            "occurred_at": occurred_at,
+        }
+        evidence_hash = hashlib.sha256(
+            json.dumps(evidence, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+
+        event = RealtimeEvent(
+            id=event_id,
+            session_id=session_id,
+            sequence=sequence,
+            transcript=transcript,
+            metadata_json=clean_metadata,
+            signal_score=signal_score,
+            model_score=model_score,
+            combined_score=combined,
+            reasons_json=reasons,
+            occurred_at=occurred_at,
+            evidence_hash=evidence_hash
         )
-        conn.execute(
-            """UPDATE realtime_sessions SET risk_score = ?, risk_level = ?,
-               event_count = ?, updated_at = ? WHERE id = ?""",
-            (combined, level, sequence, _now(), session_id),
-        )
+        db.add(event)
+        
+        session.risk_score = combined
+        session.risk_level = level
+        session.event_count = sequence
+        session.updated_at = _now()
+        
+        db.commit()
+
     return {
         **evidence,
         "event_id": event_id,
@@ -255,61 +206,59 @@ def append_event(
 
 
 def get_transcript(session_id: str) -> str:
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT transcript FROM realtime_events WHERE session_id = ? ORDER BY sequence",
-            (session_id,),
-        ).fetchall()
-    return "\n".join(row["transcript"] for row in rows if row["transcript"].strip())
+    with SessionLocal() as db:
+        events = db.query(RealtimeEvent).filter(RealtimeEvent.session_id == session_id).order_by(RealtimeEvent.sequence).all()
+        return "\n".join(e.transcript for e in events if e.transcript.strip())
 
 
 def get_session(session_id: str) -> dict[str, Any]:
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM realtime_sessions WHERE id = ?", (session_id,)).fetchone()
+    with SessionLocal() as db:
+        row = db.query(RealtimeSession).filter(RealtimeSession.id == session_id).first()
         if not row:
             raise KeyError("Realtime session not found")
-        events = conn.execute(
-            "SELECT * FROM realtime_events WHERE session_id = ? ORDER BY sequence", (session_id,)
-        ).fetchall()
-    return {
-        "session_id": row["id"],
-        "channel": row["channel"],
-        "language": row["language"],
-        "status": row["status"],
-        "risk_score": round(row["risk_score"], 4),
-        "risk_level": row["risk_level"],
-        "event_count": row["event_count"],
-        "started_at": row["started_at"],
-        "updated_at": row["updated_at"],
-        "closed_at": row["closed_at"],
-        "metadata": json.loads(row["metadata_json"] or "{}"),
-        "events": [
-            {
-                "event_id": event["id"],
-                "sequence": event["sequence"],
-                "transcript": event["transcript"],
-                "metadata": json.loads(event["metadata_json"] or "{}"),
-                "signal_score": event["signal_score"],
-                "model_score": event["model_score"],
-                "combined_score": event["combined_score"],
-                "signal_reasons": json.loads(event["reasons_json"] or "[]"),
-                "occurred_at": event["occurred_at"],
-                "evidence_hash": event["evidence_hash"],
-            }
-            for event in events
-        ],
-    }
+        events = db.query(RealtimeEvent).filter(RealtimeEvent.session_id == session_id).order_by(RealtimeEvent.sequence).all()
+        
+        return {
+            "session_id": row.id,
+            "channel": row.channel,
+            "language": row.language,
+            "status": row.status,
+            "risk_score": round(row.risk_score, 4),
+            "risk_level": row.risk_level,
+            "event_count": row.event_count,
+            "started_at": row.started_at,
+            "updated_at": row.updated_at,
+            "closed_at": row.closed_at,
+            "metadata": row.metadata_json,
+            "events": [
+                {
+                    "event_id": event.id,
+                    "sequence": event.sequence,
+                    "transcript": event.transcript,
+                    "metadata": event.metadata_json,
+                    "signal_score": event.signal_score,
+                    "model_score": event.model_score,
+                    "combined_score": event.combined_score,
+                    "signal_reasons": event.reasons_json,
+                    "occurred_at": event.occurred_at,
+                    "evidence_hash": event.evidence_hash,
+                }
+                for event in events
+            ],
+        }
 
 
 def close_session(session_id: str) -> dict[str, Any]:
     now = _now()
-    with _connect() as conn:
-        updated = conn.execute(
-            "UPDATE realtime_sessions SET status = 'closed', closed_at = ?, updated_at = ? WHERE id = ?",
-            (now, now, session_id),
-        ).rowcount
-    if not updated:
-        raise KeyError("Realtime session not found")
+    with SessionLocal() as db:
+        session = db.query(RealtimeSession).filter(RealtimeSession.id == session_id).first()
+        if not session:
+            raise KeyError("Realtime session not found")
+        session.status = 'closed'
+        session.closed_at = now
+        session.updated_at = now
+        db.commit()
+        
     return get_session(session_id)
 
 
@@ -327,57 +276,72 @@ def ensure_alerts(session_id: str, event: dict[str, Any]) -> list[dict[str, Any]
         "recommended_action": "Interrupt payment, preserve evidence, and contact 1930/NCRP.",
     }
     created: list[dict[str, Any]] = []
-    for destination in ALERT_DESTINATIONS:
-        idempotency_key = hashlib.sha256(
-            f"{session_id}:{destination}:{event['event_id']}".encode()
-        ).hexdigest()
-        alert_id = str(uuid.uuid4())
-        now = _now()
-        encoded = json.dumps({**payload, "destination": destination}, sort_keys=True, ensure_ascii=False)
-        payload_hash = hashlib.sha256(encoded.encode()).hexdigest()
-        with _connect() as conn:
-            conn.execute(
-                """INSERT OR IGNORE INTO alert_outbox
-                   (id, session_id, destination, idempotency_key, status, attempt_count,
-                    payload_json, payload_hash, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)""",
-                (alert_id, session_id, destination, idempotency_key, encoded, payload_hash, now, now),
+    
+    with SessionLocal() as db:
+        for destination in ALERT_DESTINATIONS:
+            idempotency_key = hashlib.sha256(
+                f"{session_id}:{destination}:{event['event_id']}".encode()
+            ).hexdigest()
+            alert_id = str(uuid.uuid4())
+            now = _now()
+            
+            # Check if exists
+            existing = db.query(AlertOutbox).filter(AlertOutbox.idempotency_key == idempotency_key).first()
+            if existing:
+                created.append(_alert_dict(existing))
+                continue
+                
+            outbox = AlertOutbox(
+                id=alert_id,
+                session_id=session_id,
+                destination=destination,
+                idempotency_key=idempotency_key,
+                status="pending",
+                attempt_count=0,
+                payload_json={**payload, "destination": destination},
+                payload_hash=hashlib.sha256(
+                    json.dumps({**payload, "destination": destination}, sort_keys=True, ensure_ascii=False).encode()
+                ).hexdigest(),
+                created_at=now,
+                updated_at=now
             )
-            row = conn.execute(
-                "SELECT * FROM alert_outbox WHERE idempotency_key = ?", (idempotency_key,)
-            ).fetchone()
-        created.append(_alert_dict(row))
+            db.add(outbox)
+            try:
+                db.commit()
+                db.refresh(outbox)
+                created.append(_alert_dict(outbox))
+            except IntegrityError:
+                db.rollback()
+                existing = db.query(AlertOutbox).filter(AlertOutbox.idempotency_key == idempotency_key).first()
+                if existing:
+                    created.append(_alert_dict(existing))
+                
     return created
 
 
-def _alert_dict(row: sqlite3.Row) -> dict[str, Any]:
+def _alert_dict(row: AlertOutbox) -> dict[str, Any]:
     return {
-        "alert_id": row["id"],
-        "session_id": row["session_id"],
-        "destination": row["destination"],
-        "idempotency_key": row["idempotency_key"],
-        "status": row["status"],
-        "attempt_count": row["attempt_count"],
-        "payload": json.loads(row["payload_json"]),
-        "payload_hash": row["payload_hash"],
-        "last_error": row["last_error"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "alert_id": row.id,
+        "session_id": row.session_id,
+        "destination": row.destination,
+        "idempotency_key": row.idempotency_key,
+        "status": row.status,
+        "attempt_count": row.attempt_count,
+        "payload": row.payload_json,
+        "payload_hash": row.payload_hash,
+        "last_error": row.last_error,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
     }
 
 
 def list_alerts(session_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-    with _connect() as conn:
+    with SessionLocal() as db:
+        query = db.query(AlertOutbox).order_by(AlertOutbox.created_at.desc())
         if session_id:
-            rows = conn.execute(
-                "SELECT * FROM alert_outbox WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
-                (session_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM alert_outbox ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
-    return [_alert_dict(row) for row in rows]
+            query = query.filter(AlertOutbox.session_id == session_id)
+        rows = query.limit(limit).all()
+        return [_alert_dict(row) for row in rows]
 
 
 async def dispatch_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -410,12 +374,15 @@ async def dispatch_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     status, error = "delivered", None
                 except Exception as exc:
                     status, error = "retry_required", str(exc)[:500]
-            with _connect() as conn:
-                conn.execute(
-                    """UPDATE alert_outbox SET status = ?, attempt_count = attempt_count + 1,
-                       last_error = ?, updated_at = ? WHERE id = ?""",
-                    (status, error, _now(), alert["alert_id"]),
-                )
-                row = conn.execute("SELECT * FROM alert_outbox WHERE id = ?", (alert["alert_id"],)).fetchone()
-            results.append(_alert_dict(row))
+                    
+            with SessionLocal() as db:
+                outbox = db.query(AlertOutbox).filter(AlertOutbox.id == alert["alert_id"]).first()
+                if outbox:
+                    outbox.status = status
+                    outbox.attempt_count += 1
+                    outbox.last_error = error
+                    outbox.updated_at = _now()
+                    db.commit()
+                    db.refresh(outbox)
+                    results.append(_alert_dict(outbox))
     return results

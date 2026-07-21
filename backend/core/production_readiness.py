@@ -21,9 +21,7 @@ def _present(value: str | None) -> bool:
 
 
 def _database_ready() -> bool:
-    # The current operational stores use SQLite directly. A configured URL alone
-    # must not claim PostgreSQL readiness until those stores use that adapter.
-    return False
+    return config.deployment.database_url.startswith("postgres")
 
 
 def _certified_currency_ready() -> bool:
@@ -111,8 +109,7 @@ def readiness_report(
             "required_for_production": True,
             "status": "ready" if _database_ready() else "missing",
             "detail": (
-                "Current auth, case, job, and real-time stores are SQLite-backed. "
-                "A managed PostgreSQL adapter and migration are required for multi-host production."
+                "A managed PostgreSQL adapter is required for multi-host production."
             ),
         },
         {

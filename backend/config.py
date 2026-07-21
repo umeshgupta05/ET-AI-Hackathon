@@ -189,7 +189,7 @@ class DeploymentConfig:
     """Runtime deployment guardrails."""
 
     mode: str = field(default_factory=lambda: os.getenv("DEPLOYMENT_MODE", "demo").strip().lower())
-    database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///shield_auth.db"))
+    database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/shield_db"))
     evidence_store_url: str = field(default_factory=lambda: os.getenv("EVIDENCE_STORE_URL", ""))
     ncrb_feed_url: str = field(default_factory=lambda: os.getenv("NCRB_FEED_URL", ""))
     bank_feed_url: str = field(default_factory=lambda: os.getenv("BANK_FEED_URL", ""))

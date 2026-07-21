@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 let accessToken = localStorage.getItem("access_token");
 
@@ -64,8 +64,11 @@ export async function updateMe(payload) {
   return parseOrThrow(response, "Profile update failed");
 }
 
-export async function getHistory() {
-  const response = await fetch(`${API_BASE}/api/history`, {
+export async function getHistory(query = "") {
+  const url = query.trim()
+    ? `${API_BASE}/api/history?query=${encodeURIComponent(query.trim())}`
+    : `${API_BASE}/api/history`;
+  const response = await fetch(url, {
     headers: authHeaders(),
   });
   return parseOrThrow(response, "History load failed");
@@ -169,9 +172,9 @@ export async function getEvidencePackage(caseId) {
 }
 
 export function traceWebSocketUrl(sessionId) {
-  const url = new URL(API_BASE);
-  const protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${url.host}/ws/session/${sessionId}`;
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = window.location.host;
+  return `${protocol}//${host}/ws/session/${sessionId}`;
 }
 
 export async function startRealtimeSession({ channel = "web", language = "en", metadata = {} } = {}) {
@@ -188,8 +191,11 @@ export async function getThreatFeed() {
   return parseOrThrow(response, "Threat feed unavailable");
 }
 
-export async function getCommandCentre() {
-  const response = await fetch(`${API_BASE}/api/intelligence/command-centre`);
+export async function getCommandCentre(latitude, longitude) {
+  const query = Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? `?latitude=${latitude}&longitude=${longitude}`
+    : "";
+  const response = await fetch(`${API_BASE}/api/intelligence/command-centre${query}`);
   return parseOrThrow(response, "Command centre unavailable");
 }
 

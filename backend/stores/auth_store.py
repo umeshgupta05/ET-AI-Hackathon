@@ -1,23 +1,24 @@
-"""SQLite-backed auth, profile, and case history helpers."""
+"""SQLAlchemy-backed auth, profile, and case history helpers."""
 
 import hashlib
 import hmac
 import json
 import os
 import secrets
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Optional
 
 from jose import JWTError, jwt
+from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 
-DB_PATH = Path(__file__).resolve().parent / "data" / "app.db"
+from .database import engine, SessionLocal
+from .models import Base, User, CaseHistory
+
 JWT_SECRET = os.getenv("JWT_SECRET") or "dev-change-me-citizen-fraud-shield"
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "480"))
 PBKDF2_ITERATIONS = 600_000
-
 
 SUPPORTED_LANGUAGES = {
     "en": "English",
@@ -34,45 +35,8 @@ SUPPORTED_LANGUAGES = {
     "ur": "اردو",
 }
 
-
-def _connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def init_db() -> None:
-    with _connect() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL UNIQUE,
-                hashed_password TEXT NOT NULL,
-                preferred_language TEXT NOT NULL DEFAULT 'en',
-                token_version INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS case_history (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                case_type TEXT NOT NULL,
-                verdict TEXT,
-                risk_level TEXT,
-                confidence REAL,
-                payload_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )
-            """
-        )
-
+    Base.metadata.create_all(bind=engine)
 
 def _hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -83,7 +47,6 @@ def _hash_password(password: str) -> str:
         PBKDF2_ITERATIONS,
     )
     return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest.hex()}"
-
 
 def _verify_password(password: str, stored: str) -> bool:
     parts = stored.split("$")
@@ -108,71 +71,66 @@ def _verify_password(password: str, stored: str) -> bool:
     )
     return hmac.compare_digest(digest.hex(), expected)
 
-
-def _user_from_row(row: sqlite3.Row) -> dict[str, Any]:
+def _user_from_orm(user: User) -> dict[str, Any]:
     return {
-        "id": row["id"],
-        "name": row["name"],
-        "email": row["email"],
-        "preferred_language": row["preferred_language"],
-        "created_at": row["created_at"],
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "preferred_language": user.preferred_language,
+        "created_at": user.created_at,
     }
-
 
 def create_user(name: str, email: str, password: str, preferred_language: str) -> dict[str, Any]:
     language = preferred_language if preferred_language in SUPPORTED_LANGUAGES else "en"
     user_id = secrets.token_urlsafe(16)
     now = datetime.now(timezone.utc).isoformat()
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO users (id, name, email, hashed_password, preferred_language, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (user_id, name.strip(), email.lower().strip(), _hash_password(password), language, now),
+    
+    with SessionLocal() as db:
+        new_user = User(
+            id=user_id,
+            name=name.strip(),
+            email=email.lower().strip(),
+            hashed_password=_hash_password(password),
+            preferred_language=language,
+            created_at=now
         )
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    return _user_from_row(row)
-
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return _user_from_orm(new_user)
 
 def authenticate_user(email: str, password: str) -> Optional[dict[str, Any]]:
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email.lower().strip(),)).fetchone()
-    if not row or not _verify_password(password, row["hashed_password"]):
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email == email.lower().strip()).first()
+    if not user or not _verify_password(password, user.hashed_password):
         return None
-    return _user_from_row(row)
-
+    return _user_from_orm(user)
 
 def get_user(user_id: str) -> Optional[dict[str, Any]]:
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    return _user_from_row(row) if row else None
-
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+    return _user_from_orm(user) if user else None
 
 def update_user(user_id: str, name: Optional[str] = None, preferred_language: Optional[str] = None) -> Optional[dict[str, Any]]:
-    updates = []
-    values: list[Any] = []
-    if name is not None:
-        updates.append("name = ?")
-        values.append(name.strip())
-    if preferred_language is not None:
-        updates.append("preferred_language = ?")
-        values.append(preferred_language if preferred_language in SUPPORTED_LANGUAGES else "en")
-    if updates:
-        values.append(user_id)
-        with _connect() as conn:
-            conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", values)
-    return get_user(user_id)
-
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return None
+        if name is not None:
+            user.name = name.strip()
+        if preferred_language is not None:
+            user.preferred_language = preferred_language if preferred_language in SUPPORTED_LANGUAGES else "en"
+        db.commit()
+        db.refresh(user)
+        return _user_from_orm(user)
 
 def create_access_token(user: dict[str, Any]) -> str:
     expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_MINUTES)
-    with _connect() as conn:
-        row = conn.execute("SELECT token_version FROM users WHERE id = ?", (user["id"],)).fetchone()
-    token_version = int(row["token_version"]) if row else 0
+    with SessionLocal() as db:
+        u = db.query(User).filter(User.id == user["id"]).first()
+        token_version = u.token_version if u else 0
     payload = {"sub": user["id"], "ver": token_version, "exp": expires}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
 
 def decode_token(token: str) -> Optional[dict[str, Any]]:
     try:
@@ -180,20 +138,20 @@ def decode_token(token: str) -> Optional[dict[str, Any]]:
         user_id = payload.get("sub")
         if not user_id:
             return None
-        with _connect() as conn:
-            row = conn.execute("SELECT token_version FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not row or int(payload.get("ver", -1)) != int(row["token_version"]):
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.id == user_id).first()
+        if not user or int(payload.get("ver", -1)) != user.token_version:
             return None
-        return get_user(user_id)
+        return _user_from_orm(user)
     except JWTError:
         return None
 
-
 def revoke_tokens(user_id: str) -> None:
-    """Invalidate every access token previously issued to a user."""
-    with _connect() as conn:
-        conn.execute("UPDATE users SET token_version = token_version + 1 WHERE id = ?", (user_id,))
-
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user.token_version += 1
+            db.commit()
 
 def save_case(user_id: str, case_type: str, result: dict[str, Any]) -> dict[str, Any]:
     case_id = result.get("case_id") or secrets.token_urlsafe(12)
@@ -206,65 +164,68 @@ def save_case(user_id: str, case_type: str, result: dict[str, Any]) -> dict[str,
         "captured_at": now,
         "schema_version": "1.0",
     }
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO case_history
-            (id, user_id, case_type, verdict, risk_level, confidence, payload_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                case_id,
-                user_id,
-                case_type,
-                result.get("verdict") or result.get("final_verdict"),
-                result.get("risk_level"),
-                float(result.get("confidence", 0.0) or 0.0),
-                json.dumps(result),
-                now,
-            ),
+    
+    with SessionLocal() as db:
+        stmt = insert(CaseHistory).values(
+            id=case_id,
+            user_id=user_id,
+            case_type=case_type,
+            verdict=result.get("verdict") or result.get("final_verdict"),
+            risk_level=result.get("risk_level"),
+            confidence=float(result.get("confidence", 0.0) or 0.0),
+            payload_json=result,
+            created_at=now
         )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['id'],
+            set_={
+                'user_id': stmt.excluded.user_id,
+                'case_type': stmt.excluded.case_type,
+                'verdict': stmt.excluded.verdict,
+                'risk_level': stmt.excluded.risk_level,
+                'confidence': stmt.excluded.confidence,
+                'payload_json': stmt.excluded.payload_json,
+                'created_at': stmt.excluded.created_at,
+            }
+        )
+        db.execute(stmt)
+        db.commit()
+        
     return result
 
-
 def get_case(user_id: str, case_id: str) -> Optional[dict[str, Any]]:
-    """Return a case only when it belongs to the authenticated user."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT payload_json, case_type, created_at FROM case_history WHERE id = ? AND user_id = ?",
-            (case_id, user_id),
-        ).fetchone()
-    if not row:
+    with SessionLocal() as db:
+        case = db.query(CaseHistory).filter(CaseHistory.id == case_id, CaseHistory.user_id == user_id).first()
+    if not case:
         return None
     return {
-        "id": case_id,
-        "case_type": row["case_type"],
-        "created_at": row["created_at"],
-        "result": json.loads(row["payload_json"]),
+        "id": case.id,
+        "case_type": case.case_type,
+        "created_at": case.created_at,
+        "result": case.payload_json,
     }
 
+from sqlalchemy import cast, String, func
 
-def get_history(user_id: str) -> list[dict[str, Any]]:
-    with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, case_type, verdict, risk_level, confidence, payload_json, created_at
-            FROM case_history
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT 100
-            """,
-            (user_id,),
-        ).fetchall()
+def get_history(user_id: str, search_query: Optional[str] = None) -> list[dict[str, Any]]:
+    with SessionLocal() as db:
+        query = db.query(CaseHistory).filter(CaseHistory.user_id == user_id)
+        if search_query:
+            # PostgreSQL full-text search on the JSON payload casted to text
+            query = query.filter(
+                func.to_tsvector('english', cast(CaseHistory.payload_json, String))
+                .op('@@')(func.websearch_to_tsquery('english', search_query))
+            )
+        cases = query.order_by(CaseHistory.created_at.desc()).limit(100).all()
     return [
         {
-            "id": row["id"],
-            "case_type": row["case_type"],
-            "verdict": row["verdict"],
-            "risk_level": row["risk_level"],
-            "confidence": row["confidence"],
-            "created_at": row["created_at"],
-            "result": json.loads(row["payload_json"]),
+            "id": c.id,
+            "case_type": c.case_type,
+            "verdict": c.verdict,
+            "risk_level": c.risk_level,
+            "confidence": c.confidence,
+            "created_at": c.created_at,
+            "result": c.payload_json,
         }
-        for row in rows
+        for c in cases
     ]

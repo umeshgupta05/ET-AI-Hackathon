@@ -23,6 +23,7 @@ class AnalyticsTracker:
         self._city_detections: dict[str, int] = defaultdict(int)
         self._scam_type_timeline: list[dict] = []
         self._start_time = datetime.now(timezone.utc)
+        self._seeded = False
 
     def log_analysis(
         self,
@@ -68,8 +69,34 @@ class AnalyticsTracker:
                     "risk_level": risk_level,
                 })
 
+    def seed_from_db(self):
+        try:
+            from stores.database import SessionLocal
+            from stores.models import CaseHistory
+            with SessionLocal() as db:
+                cases = db.query(CaseHistory).order_by(CaseHistory.created_at.desc()).limit(1000).all()
+                for c in reversed(cases):
+                    res = c.payload_json or {}
+                    self.log_analysis(
+                        verdict=c.verdict or res.get("verdict", "needs_review"),
+                        confidence=c.confidence or float(res.get("confidence", 0.0)),
+                        risk_level=c.risk_level or res.get("risk_level", "medium"),
+                        scam_types=res.get("categories") or res.get("scam_types") or (["counterfeit_currency"] if c.verdict == "fake" else []),
+                        modality=c.case_type or "text",
+                        agents_invoked=[],
+                        processing_time=0.5,
+                    )
+                    # Override timestamp to use actual historical time
+                    self._analyses[-1]["timestamp"] = c.created_at
+        except Exception as e:
+            print(f"Failed to seed analytics from DB: {e}")
+
     def get_live_stats(self) -> dict[str, Any]:
         """Get real-time aggregated stats for the Command Centre."""
+        if not self._seeded:
+            self._seeded = True
+            self.seed_from_db()
+
         now = datetime.now(timezone.utc)
         cutoff_24h = (now - timedelta(hours=24)).isoformat()
         cutoff_1h = (now - timedelta(hours=1)).isoformat()
@@ -80,7 +107,7 @@ class AnalyticsTracker:
             recent_1h = [a for a in self._analyses if a["timestamp"] >= cutoff_1h]
 
             # A review verdict is deliberately distinct from an actionable threat.
-            actionable_verdicts = {"high_risk", "medium_risk"}
+            actionable_verdicts = {"high_risk", "medium_risk", "fake"}
             threats_24h = [a for a in recent_24h if a["verdict"] in actionable_verdicts]
             threats_1h = [a for a in recent_1h if a["verdict"] in actionable_verdicts]
             safe_24h = [a for a in recent_24h if a["verdict"] in ("safe", "low_risk")]
