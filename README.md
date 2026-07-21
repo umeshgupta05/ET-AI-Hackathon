@@ -6,7 +6,7 @@ ET AI Hackathon 2026, Problem Statement 6. This repository contains a working mu
 
 - Digital-arrest, impersonation, OTP/KYC, parcel, investment, and financial scam analysis.
 - Persistent real-time call sessions that combine accumulated call flow with caller verification, STIR/SHAKEN attestation, spoof-risk, video identity, payment pressure, and secrecy/urgency signals. High-risk events create signed, idempotent citizen/telecom/MHA alert records before transfer.
-- Currency-image screening with YOLO/geometry localization, fixed 14-region EfficientNet/Transformer classification, CLIP, ELA, FFT, NPR, Grad-CAM, and TorchScript edge export.
+- Currency-image screening with YOLO/geometry localization, Pre-Norm MIL Aggregator (EfficientNet/ConvNeXt multi-backbone strategy), SimCLR contrastive training, CLIP, ELA, FFT, NPR, Grad-CAM, and TorchScript edge export.
 - Dedicated front/back/UV currency inspection for INR 10, 20, 50, 100, 200, 500, and 2000, including non-currency rejection and explicit microprint, thread, serial, watermark, and UV capture results.
 - Audio transcription and spoof-risk signals with Whisper and WavLM/AASIST-style analysis.
 - Hybrid BM25 + dense RAG with cross-encoder reranking.

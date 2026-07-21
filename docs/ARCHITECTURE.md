@@ -19,7 +19,7 @@ flowchart LR
     API --> OTel[OpenTelemetry Exporter]
     MCP[Trusted MCP stdio Adapter: Tools + Resources + Prompt] --> API
     API --> LG[LangGraph Orchestrator]
-    LG --> V[Vision Agent\nYOLO + EfficientNet + CLIP + Forensics]
+    LG --> V[Vision Agent\nYOLO + EfficientNet/ConvNeXt + MIL Aggregator + CLIP + Forensics]
     LG --> S[Speech Agent\nWhisper + Spoof Detection]
     LG --> N[NLP Agent\nDistilBERT + Hybrid RAG + Multi-role LLM]
     LG --> G[Graph Agent\nGAT + Community Detection]
