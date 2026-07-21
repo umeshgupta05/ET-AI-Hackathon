@@ -3,7 +3,7 @@
 ```mermaid
 flowchart LR
     Citizen[Citizen / Bank / Officer] --> API[FastAPI Gateway]
-    API --> Auth[JWT + SQLite Case Store]
+    API --> Auth[JWT + PostgreSQL Case/Job Store]
     API --> Jobs[Authenticated Async Job API]
     Jobs --> RMQ[RabbitMQ Quorum Queue + DLQ]
     RMQ --> Worker[Analysis Worker]
@@ -42,7 +42,7 @@ flowchart LR
 
 ## Deployment Boundaries
 
-- The API is stateless for inference; authenticated profile and case history currently use SQLite for the prototype.
+- The API is stateless for inference; authenticated profile, case history, job state, realtime sessions, alert outbox, and operational intelligence use PostgreSQL through `DATABASE_URL`.
 - Model adapters lazy-load heavyweight vision and speech models and degrade to documented fallback paths.
 - RabbitMQ is optional. Queue messages contain only opaque job IDs; sensitive payloads remain in the owner-scoped job store and are erased after completion or terminal failure. Manual acknowledgement, confirms, lease heartbeats, retries, recovery, and a DLQ provide at-least-once processing with idempotent job claiming.
 - Redis is optional and does not duplicate RabbitMQ. It holds only SHA-256-keyed, expiring counters for shared login and inference rate limits; no analysis payloads or results are cached.
@@ -55,7 +55,7 @@ flowchart LR
 - Real-time sessions retain cumulative transcript decisions and hashed identifiers. Structured caller attestation, spoof, video-identity, payment, secrecy, and urgency signals feed a signed, retryable alert outbox.
 - Twilio channel endpoints support provider signature validation; remote media is restricted to an explicit host allowlist.
 - GAT inference includes a score-collapse/distribution-shift gate. Degraded graphs use evidence-derived anomaly scores and expose the fallback in `model_quality`.
-- Production deployment should replace SQLite with managed PostgreSQL, use managed Redis/RabbitMQ with TLS and credential rotation, terminate TLS at an API gateway, use a secrets manager, use redacted OpenTelemetry, and ingest only authorized government, bank, and telecom feeds.
+- Local compose provides PostgreSQL, Redis, and RabbitMQ for the full integration path. Production deployment should use managed PostgreSQL, managed Redis/RabbitMQ with TLS and credential rotation, TLS termination at an API gateway, a secrets manager, redacted OpenTelemetry, and only authorized government, bank, and telecom feeds.
 
 ## Privacy and Safety
 

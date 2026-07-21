@@ -39,7 +39,7 @@ cd backend
 python data/scripts/train_vision_classifier.py --smoke
 ```
 
-The latest smoke run used 112 train and 56 validation images, wrote `candidate_training_metadata.json`, and produced F1 0.8421 and ROC-AUC 0.9184. Smoke runs are deliberately ineligible for deployment replacement.
+The latest smoke run used 112 train and 56 validation images, wrote `backend/data/trained_models/forgery_classifier/dev_smoke_test_metadata.json`, and produced F1 0.8421 and ROC-AUC 0.9184. Smoke runs are deliberately ineligible for deployment replacement.
 
 Full training is command-ready:
 

@@ -52,15 +52,15 @@ backend/data/training/   Small tracked datasets and reproducible manifests
 - Git
 - About 5 GB free disk space for Python packages and downloaded model caches
 - Kaggle credentials only if preparing the currency dataset
-- Docker Desktop only if using the optional RabbitMQ/Redis services
+- PostgreSQL 16+ (required — see Backend Setup below)
+- Docker Desktop if using PostgreSQL via `docker compose` or the optional RabbitMQ/Redis services
 
 Windows PowerShell commands are shown below. Run them from the repository root unless a step says otherwise.
 
 ## Backend Setup
 
 > Requires PostgreSQL 16+ running locally, or `docker compose up -d postgres`.
-> Connection settings are in `.env.example` (`DATABASE_URL`).
-
+> Connection settings are in `.env.example` (`DATABASE_URL`) — see "Data and Storage" below.
 
 ```powershell
 cd "D:\ET AI Hackathon"
@@ -75,6 +75,7 @@ Copy-Item backend\.env.example backend\.env
 Edit `backend/.env` and set:
 
 ```dotenv
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/shield_db
 OPENROUTER_API_KEY=your_openrouter_key
 GROQ_API_KEY=your_groq_key
 JWT_SECRET=your_long_random_secret
@@ -104,35 +105,41 @@ Backend URLs:
 
 The first startup can take several minutes while local Hugging Face, CLIP, and vision assets are downloaded or loaded. Keep `DEBUG=false` while testing models so file changes do not repeatedly reload them.
 
+## Data and Storage
+
+PostgreSQL is the durable store for users, cases, and job/result records — this
+is a required dependency, not optional infrastructure (see table below for what
+*is* optional). Start it with `docker compose up -d postgres` or point
+`DATABASE_URL` at any PostgreSQL 16+ instance.
+
 ## Optional Infrastructure
 
-RabbitMQ and Redis have distinct jobs and are not interchangeable:
+RabbitMQ and Redis have distinct jobs and are not interchangeable, and neither is required for the normal synchronous API:
 
 | Service | Purpose | Data boundary | Required for normal API? |
 |---|---|---|---|
 | RabbitMQ | Durable background analysis delivery, retries, dead-lettering | Queue messages contain only an opaque job ID | No |
 | Redis | Atomic shared rate limits across API processes | Hashed identifiers and expiring counters only | No |
-| SQLite | Prototype users, cases, and durable job/result records | Owner-scoped application data | Yes for current prototype auth/history |
 
 ### No-login hackathon bootstrap
 
 The following command prepares every local component that does not require an
 external account or institutional agreement. It downloads the real UCI SMS
-Spam Collection (CC BY 4.0), records checksums and provenance, seeds a 60-node
-and 90-edge privacy-safe sandbox fraud graph, seeds 12 sandbox geospatial
-scenarios, and adds missing local-only secrets/service URLs to the Git-ignored
-`backend/.env`:
+Spam Collection (CC BY 4.0), records checksums and provenance, seeds a sandbox
+fraud graph and sandbox geospatial scenarios (see counts and generation logic
+in `bootstrap_hackathon_sandbox.py`), and adds missing local-only
+secrets/service URLs to the Git-ignored `backend/.env`:
 
 ```powershell
 python backend\data\scripts\bootstrap_hackathon_sandbox.py --configure-env
-docker compose up -d rabbitmq redis
+docker compose up -d postgres rabbitmq redis
 ```
 
-Downloaded files, the sandbox manifest, SQLite runtime data, and secrets remain
-Git-ignored. Every seeded record is marked `synthetic_sandbox`; public corpus
-rows are marked `public_research`. Only records explicitly marked `authorized`
-can unlock strict production intelligence gates. This lets the complete ingest,
-graph, geospatial, queue, reporting-draft, and UI flows run for judges without
+Downloaded files, the sandbox manifest, and secrets remain Git-ignored. Every
+seeded record is marked `synthetic_sandbox`; public corpus rows are marked
+`public_research`. Only records explicitly marked `authorized` can unlock
+strict production intelligence gates. This lets the complete ingest, graph,
+geospatial, queue, reporting-draft, and UI flows run for judges without
 misrepresenting sandbox data as NCRB, bank, telecom, or RBI evidence.
 
 The UCI corpus is auxiliary real-SMS spam research data, not automatically
@@ -140,7 +147,7 @@ relabelled as digital-arrest fraud. Its source manifest is generated under
 `backend/data/public_sources/uci_sms_spam_collection/` with DOI, licence, source
 URL, record count, and SHA-256 hashes.
 
-Start both optional services with `docker compose up -d rabbitmq redis`. The compose defaults are development credentials; set `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, and `REDIS_PASSWORD` in a root-level untracked `.env` before shared deployment.
+Start the optional services with `docker compose up -d rabbitmq redis`. The compose defaults are development credentials; set `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, and `REDIS_PASSWORD` in a root-level untracked `.env` before shared deployment.
 
 ### Durable RabbitMQ Jobs
 
@@ -241,7 +248,7 @@ Guided reporting now has two levels:
 | `POST /api/reporting/cases/{case_id}/draft` | Build an integrity-hashed NCRP/official-reporting draft for human review |
 | `POST /api/reporting/cases/{case_id}/submit` | Submit the draft to `OFFICIAL_REPORTING_API_URL` when an authorized bridge is configured |
 
-Evidence can be mirrored outside SQLite with `EVIDENCE_STORE_URL=file://D:/secure-shield-evidence` or an encrypted S3-compatible target such as `s3://shield-evidence/cases`. S3 objects include SHA-256 metadata and support AES-256 or KMS encryption. OpenTelemetry is enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+Evidence can be mirrored outside the primary database with `EVIDENCE_STORE_URL=file://D:/secure-shield-evidence` or an encrypted S3-compatible target such as `s3://shield-evidence/cases`. S3 objects include SHA-256 metadata and support AES-256 or KMS encryption. OpenTelemetry is enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 
 Authorized feeds can be polled on a schedule by setting `FEED_POLLING_ENABLED=true`, the four feed URLs/tokens, and `FEED_POLL_INTERVAL_SECONDS`. Production mode requires HTTPS. JSON responses may contain `geospatial_incidents`, `graph_entities`, and `graph_edges`; every imported record is tagged `authorized` with source provenance.
 
@@ -252,7 +259,7 @@ MCP is a separate local stdio process for trusted analyst clients. It reuses the
 ```powershell
 $env:SHIELD_API_BASE_URL="http://localhost:8000"
 $env:SHIELD_API_TOKEN="your_login_access_token"
-python backend\mcp_server.py
+python backend\api\mcp_server.py
 ```
 
 Obtain the access token by signing in through the frontend or `POST /api/auth/login`. The token determines case ownership and expires according to `ACCESS_TOKEN_MINUTES`. Do not expose the stdio adapter directly to untrusted users or place access tokens in source control.
@@ -308,7 +315,9 @@ Images, feature crops, downloaded archives, and model weights are Git-ignored; s
 
 ## Model Training
 
-Run quick smoke training first:
+Run quick smoke training first — this produces a fast, low-epoch *candidate*
+checkpoint used only to sanity-check the pipeline, not to serve production
+traffic:
 
 ```powershell
 python backend\data\scripts\train_text_classifier.py --smoke
@@ -344,7 +353,6 @@ With the backend running:
 
 ```powershell
 python -m pytest backend\tests -q
-python backend\_test_e2e.py
 ```
 
 Frontend checks:
@@ -367,7 +375,7 @@ python backend\tests\test_redis_integration.py
 python backend\tests\test_mcp_integration.py
 ```
 
-Set `SHIELD_API_TOKEN` before the MCP test to additionally verify MCP -> API -> RabbitMQ -> worker -> completed result. Without a token, it verifies public discovery, annotations, resources, prompts, health, and hotspots. The E2E suite checks health, scam/benign text, turn-by-turn analysis, demo contracts, and real genuine/counterfeit dataset images. Hosted-model tests require valid API keys and internet access.
+Set `SHIELD_API_TOKEN` before the MCP test to additionally verify MCP -> API -> RabbitMQ -> worker -> completed result. Without a token, it verifies public discovery, annotations, resources, prompts, health, and hotspots. `backend\tests\test_e2e.py` (included in the `pytest` run above) checks health, scam/benign text, turn-by-turn analysis, demo contracts, and real genuine/counterfeit dataset images. Hosted-model tests require valid API keys and internet access.
 
 ## Main API Routes
 
@@ -438,11 +446,12 @@ The `needs_review` tier prevents borderline cases (0.30–0.45) from triggering 
 
 - Text training data is curated/template-generated; the separate Chakravyuh benchmark is test-only and never used for training.
 - Currency training uses 1,849 validated publisher-labelled real note images in the current local preparation: 934 genuine and 915 counterfeit. It also uses 1,078 unlabelled real feature-reference crops for self-supervised contrastive learning only.
+- **Active currency model** (`model.pth`, full training mode, 5 contrastive + 10 supervised epochs, 510-image stratified validation split): 93.9% accuracy, 0.935 F1, 89.6% precision, 97.7% recall, 0.984 ROC-AUC. This is the checkpoint the vision agent loads at runtime.
+- A separate fast smoke-training run (1 contrastive + 2 supervised epochs, used only to sanity-check the training pipeline) produced a weaker candidate — 83.9% accuracy, 0.842 F1, 0.918 ROC-AUC — that did not meet the F1 ≥ 0.85 / ROC-AUC ≥ 0.90 promotion gate and was correctly never used to replace `model.pth`. Its metadata is kept at `backend/data/trained_models/forgery_classifier/dev_smoke_test_metadata.json` for pipeline-validation reference only.
 - Token-protected certified currency specimen metadata can be ingested for production reference; without it, image verdicts explicitly remain screening-only.
 - Fixed UI text has complete checked-in coverage for 12 languages; Kimi generates explanations, indicators, and recommendations in the selected language at analysis time, with localized deterministic fallbacks.
-- The graph uses authorized ingested entities/edges when present; the 69-node demonstration network is fallback data and is blocked in strict production mode.
+- The graph uses authorized ingested entities/edges when present. If the operational store is unavailable or empty in demo mode, the built-in fallback graph contains 69 nodes and 106 edges; the optional hackathon sandbox bootstrap seeds 60 operational entities and 90 operational edges. Both demo paths are blocked in strict production mode.
 - CLIP and XGBoost load lazily or fall back safely when artifacts are unavailable.
-- Current grouped currency smoke validation on the real multi-region pipeline: 83.9% accuracy, 0.842 F1, and 0.918 ROC-AUC across a 56-image validation slice. The candidate checkpoint is preserved as `model_candidate.pth`; smoke runs cannot replace the active checkpoint. Full training must pass F1 >= 0.85 and ROC-AUC >= 0.90 before replacing `model.pth`.
 - Currency edge export is implemented as TorchScript with input shape `[1, 14, 3, 224, 224]`; latest CPU benchmark is 576.62 ms median and 905.98 ms p95 on four threads. The edge artifact is a screening prototype for controlled capture lanes; bank-counter deployment still requires calibrated RGB/UV/IR/transmitted-light hardware, magnetic/thickness sensors, certified specimens, and acceptance testing.
 - Current Chakravyuh test-only text result: 0.853 ROC-AUC, 0.746 F1, 95.7% precision, 61.1% recall, and 12.9% false-positive rate (4/31 benign) across 175 scenarios at the action threshold. Top category scores include OTP theft (F1: 0.957) and KYC fraud (F1: 0.902). The `needs_review` tier captures 8 borderline cases (7 scam, 1 benign). Regional-language subsets are too small for language-level claims.
 - Current fusion meta-learner: 1,382 labelled rows and 0.723 overall validation ROC-AUC. The deployment quality gate enables XGBoost only for image signatures (0.951 validation ROC-AUC); text, audio, and unseen combinations use weighted fallback.
@@ -451,7 +460,7 @@ The `needs_review` tier prevents borderline cases (0.30–0.45) from triggering 
 ## Evaluated Production Additions
 
 - **OpenTelemetry:** optional FastAPI instrumentation is wired and enabled by `OTEL_EXPORTER_OTLP_ENDPOINT`; production teams must still run a redacted collector and sampling policy.
-- **PostgreSQL:** recommended replacement for SQLite when API and workers run on multiple hosts. Redis is intentionally not used as the durable case database.
+- **PostgreSQL:** the durable store for the API and workers (see "Data and Storage" above); supports running across multiple hosts. Redis is intentionally not used as the durable case database.
 - **Object storage:** evidence JSON can be mirrored to `EVIDENCE_STORE_URL=file://...`; media uploads are still processed in memory unless a governed media retention backend is configured.
 - **Kafka, Celery, and another vector database:** not added. RabbitMQ already handles work delivery, the worker has explicit ownership/lease semantics, and ChromaDB plus BM25 already serves prototype RAG.
 - **Remote MCP over HTTP:** not added. Local stdio minimizes exposure; remote use would require OAuth 2.1 scopes, TLS, consent UI, and per-tool authorization.
@@ -465,6 +474,7 @@ See [docs/PROBLEM_STATEMENT_CHECKLIST.md](docs/PROBLEM_STATEMENT_CHECKLIST.md) f
 - Slow first request: local model initialization and downloads are intentionally lazy.
 - Currency classifier unavailable: prepare the dataset and train `train_vision_classifier.py`.
 - XGBoost shows `weighted_fallback`: generate held-out fusion predictions and train `train_xgboost_fusion.py`.
+- Database connection errors: verify PostgreSQL is running (`docker compose ps postgres`) and `DATABASE_URL` in `backend/.env` matches its credentials.
 - Redis shows `unavailable`: verify `docker compose ps redis`, the password in `REDIS_URL`, and `REDIS_ENABLED=true`.
 - RabbitMQ jobs return `503`: enable `ASYNC_JOBS_ENABLED`, start RabbitMQ and the worker, and verify the broker URL.
 - Kaggle authentication fails: verify `%USERPROFILE%\.kaggle\kaggle.json` and its key permissions.
