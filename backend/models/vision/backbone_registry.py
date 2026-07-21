@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
-
 
 @dataclass(frozen=True)
 class BackboneSpec:
@@ -11,7 +9,8 @@ class BackboneSpec:
     default_head_lr: float
     default_weight_decay: float
     license_name: str
-
+    pretrained_tag: str
+    default_ssl_mode: str
 
 BACKBONE_REGISTRY = {
     "efficientnet_b0": BackboneSpec(
@@ -21,7 +20,9 @@ BACKBONE_REGISTRY = {
         default_backbone_lr=3e-5,
         default_head_lr=3e-4,
         default_weight_decay=0.01,
-        license_name="Apache-2.0"
+        license_name="Apache-2.0",
+        pretrained_tag="pretrained",
+        default_ssl_mode="simclr"
     ),
     "convnextv2_tiny_fcmae": BackboneSpec(
         key="convnextv2_tiny_fcmae",
@@ -30,7 +31,9 @@ BACKBONE_REGISTRY = {
         default_backbone_lr=1e-5,
         default_head_lr=2e-4,
         default_weight_decay=0.05,
-        license_name="CC-BY-NC-4.0"
+        license_name="CC-BY-NC-4.0",
+        pretrained_tag="fcmae",
+        default_ssl_mode="none"
     )
 }
 

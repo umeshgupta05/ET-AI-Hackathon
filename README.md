@@ -80,6 +80,7 @@ OPENROUTER_API_KEY=your_openrouter_key
 GROQ_API_KEY=your_groq_key
 JWT_SECRET=your_long_random_secret
 DEBUG=false
+VISION_BACKBONE=efficientnet_b0  # Set to convnextv2_tiny_fcmae only after passing F1 >= 0.85 and ROC-AUC >= 0.90 in promotion gate
 ```
 
 - OpenRouter uses `moonshotai/kimi-k2.5` first, then `moonshotai/kimi-k2.6:free`. Groq then uses `openai/gpt-oss-120b` for reasoning, `openai/gpt-oss-20b` for routing and fast classification, and `qwen/qwen3.6-27b` for multimodal analysis.
