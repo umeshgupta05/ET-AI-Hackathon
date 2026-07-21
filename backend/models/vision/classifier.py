@@ -1,55 +1,76 @@
-"""
-Hybrid Vision Classifier — CNN + Pre-Norm MIL Transformer Architecture.
+"""Configurable CNN + Pre-Norm MIL forgery-classification runtime."""
 
-This module provides the robust inference runtime for document forgery detection, 
-featuring missing region masking, explicit identity embeddings, and robust legacy checkpoint compatibility.
-"""
+from __future__ import annotations
 
 import json
 import logging
 import os
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
+from PIL import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from config import config
-from models.vision.detector import CURRENCY_REGIONS
 from models.vision.backbone_registry import get_backbone_spec
+from models.vision.detector import CURRENCY_REGIONS
 from models.vision.preprocessing import get_region_tensor_transform
 
 logger = logging.getLogger(__name__)
 
 REGION_NAMES = ("full_note", *CURRENCY_REGIONS.keys())
+CHECKPOINT_FORMAT_VERSION = 2
+ARCHITECTURE_VERSION = "prenorm_mil_v2"
+D_MODEL = 384
+NUM_HEADS = 6
+NUM_LAYERS = 3
+NUM_CLASSES = 2
+
+
+def _pool_backbone_output(features: torch.Tensor) -> torch.Tensor:
+    if features.ndim == 4:
+        return features.mean(dim=(2, 3))
+    if features.ndim == 2:
+        return features
+    raise ValueError(f"Unsupported backbone output shape: {tuple(features.shape)}")
 
 
 class PreNormMILAggregator(nn.Module):
-    """
-    Pre-Norm Multiple Instance Learning Transformer Aggregator.
-    Takes a bag of region embeddings [B, R, backbone_feature_dim],
-    projects them, applies learned region identity embeddings, and runs them
-    through a Pre-Norm Transformer.
-    """
-    def __init__(self, feature_dim: int, num_regions: int, d_model: int = 384, num_heads: int = 6, num_layers: int = 3, dropout: float = 0.1):
+    """Aggregate a fixed semantic bag of currency-region embeddings."""
+
+    def __init__(
+        self,
+        feature_dim: int,
+        num_regions: int,
+        d_model: int = D_MODEL,
+        num_heads: int = NUM_HEADS,
+        num_layers: int = NUM_LAYERS,
+        dropout: float = 0.1,
+    ) -> None:
         super().__init__()
-        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
-        assert num_regions <= 20, f"Region count {num_regions} exceeds limits"
-        
+        if d_model % num_heads != 0:
+            raise ValueError("d_model must be divisible by num_heads")
+        if num_regions < 1:
+            raise ValueError("num_regions must be positive")
+
+        self.feature_dim = feature_dim
+        self.num_regions = num_regions
         self.d_model = d_model
-        
+        self.num_heads = num_heads
+        self.num_layers = num_layers
+
         self.input_proj = nn.Sequential(
             nn.Linear(feature_dim, d_model),
             nn.LayerNorm(d_model),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
         )
-        
         self.region_embeddings = nn.Parameter(torch.randn(1, num_regions, d_model) * 0.02)
         self.cls_token = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
         self.cls_pos_embedding = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
+        self.missing_token = nn.Parameter(torch.zeros(1, 1, d_model))
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
@@ -57,58 +78,78 @@ class PreNormMILAggregator(nn.Module):
             dim_feedforward=d_model * 4,
             dropout=dropout,
             batch_first=True,
-            activation='gelu',
+            activation="gelu",
             norm_first=True,
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-
         self.norm = nn.LayerNorm(d_model)
-        self.missing_token = nn.Parameter(torch.zeros(1, 1, d_model))
 
-    def forward(self, features: torch.Tensor, missing_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """
-        features: [B, R, feature_dim]
-        missing_mask: [B, R] boolean tensor where True means region is missing
-        Returns: [B, d_model] normalized CLS representation
-        """
-        B, R, _ = features.shape
+    def forward(
+        self,
+        features: torch.Tensor,
+        missing_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if features.ndim != 3:
+            raise ValueError("features must have shape [B, R, feature_dim]")
+        batch_size, region_count, feature_dim = features.shape
+        if feature_dim != self.feature_dim:
+            raise ValueError(
+                f"Expected feature_dim={self.feature_dim}, received {feature_dim}"
+            )
+        if region_count > self.num_regions:
+            raise ValueError(
+                f"Received {region_count} regions, configured maximum is {self.num_regions}"
+            )
+        if missing_mask is not None and missing_mask.shape != (batch_size, region_count):
+            raise ValueError(
+                f"missing_mask must be {(batch_size, region_count)}, got {tuple(missing_mask.shape)}"
+            )
+
         x = self.input_proj(features)
-        
         if missing_mask is not None:
-            expanded_mask = missing_mask.unsqueeze(-1).expand(-1, -1, self.d_model)
-            missing_tokens = self.missing_token.expand(B, R, -1)
-            x = torch.where(expanded_mask, missing_tokens, x)
-            
-        x = x + self.region_embeddings[:, :R, :]
-        cls_tokens = self.cls_token.expand(B, -1, -1) + self.cls_pos_embedding
-        x = torch.cat([cls_tokens, x], dim=1)
-        
+            missing = self.missing_token.expand(batch_size, region_count, -1)
+            x = torch.where(missing_mask.unsqueeze(-1), missing, x)
+
+        # Semantic identity is retained even when a region is represented by a missing token.
+        x = x + self.region_embeddings[:, :region_count, :]
+        cls = self.cls_token.expand(batch_size, -1, -1) + self.cls_pos_embedding
+        x = torch.cat([cls, x], dim=1)
         x = self.transformer(x)
-        x = self.norm(x)
-        return x[:, 0, :]
+        return self.norm(x)[:, 0, :]
 
 
 class ContrastiveHead(nn.Module):
-    """SimCLR-style contrastive projection head for forensic embeddings."""
-    def __init__(self, in_features: int, proj_dim: int = 128):
+    def __init__(self, in_features: int, projection_dim: int = 128) -> None:
         super().__init__()
+        self.projection_dim = projection_dim
         self.projection = nn.Sequential(
             nn.Linear(in_features, in_features),
             nn.GELU(),
-            nn.Linear(in_features, proj_dim),
+            nn.Linear(in_features, projection_dim),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        z = self.projection(x)
-        return F.normalize(z, dim=1)
+        return F.normalize(self.projection(x), dim=1)
+
+
+def build_classifier_head(d_model: int = D_MODEL) -> nn.Module:
+    return nn.Sequential(
+        nn.LayerNorm(d_model),
+        nn.Linear(d_model, 256),
+        nn.GELU(),
+        nn.Dropout(0.2),
+        nn.Linear(256, NUM_CLASSES),
+    )
 
 
 class HybridForgeryClassifier:
-    """
-    Robust Hybrid CNN-Transformer forgery classifier with Pre-Norm MIL Aggregator.
-    Supports detailed explainability and cross-region forensic matching.
-    """
-    def __init__(self):
+    """Inference runtime with strict checkpoints and calibrated decisions."""
+
+    def __init__(
+        self,
+        backbone_key: Optional[str] = None,
+        checkpoint_name: str = "model.pth",
+    ) -> None:
         self._backbone = None
         self._aggregator = None
         self._contrastive_head = None
@@ -116,220 +157,226 @@ class HybridForgeryClassifier:
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._initialized = False
         self._trained_weights_loaded = False
-        self._backbone_key = os.getenv("VISION_BACKBONE", "efficientnet_b0")
-        
+        self._backbone_key = backbone_key or os.getenv("VISION_BACKBONE", "efficientnet_b0")
+        self._checkpoint_name = checkpoint_name
+        self._checkpoint_path: Optional[Path] = None
         self._transform = None
+
         self._checkpoint_format_version = None
         self._architecture_version = None
-        
-        # Calibration state
+        self._model_status = "not_initialized"
+        self._promotion_status = "unknown"
+
         self._calibration_loaded = False
         self._temperature = 1.0
         self._counterfeit_threshold = 0.5
-        self._uncertainty_margin = 0.1
+        self._uncertainty_margin = 0.05
         self._threshold_source = "safe_default"
 
     async def initialize(self) -> None:
-        """Load the robust hybrid model."""
         if self._initialized:
             return
 
-        logger.info(f"🔍 Initializing Robust Forgery Classifier with backbone {self._backbone_key}...")
+        import timm
 
-        try:
-            import timm
+        spec = get_backbone_spec(self._backbone_key)
+        trained_dir = (
+            Path(__file__).resolve().parent.parent.parent
+            / "data"
+            / "trained_models"
+            / "forgery_classifier"
+            / self._backbone_key
+        )
+        checkpoint_path = trained_dir / self._checkpoint_name
+        metadata_path = trained_dir / (
+            "training_metadata.json"
+            if self._checkpoint_name == "model.pth"
+            else "candidate_training_metadata.json"
+        )
 
-            spec = get_backbone_spec(self._backbone_key)
-            self._transform = get_region_tensor_transform(spec.timm_name, spec.default_input_size)
-            
-            trained_dir = Path(__file__).resolve().parent.parent.parent / "data" / "trained_models" / "forgery_classifier"
-            trained_path = trained_dir / self._backbone_key / "model.pth"
-            metadata_path = trained_dir / self._backbone_key / "training_metadata.json"
-            
-            # Robust Legacy fallback support for older checkpoints
-            legacy_path = trained_dir / "model.pth"
-            if not trained_path.exists() and self._backbone_key == "efficientnet_b0" and legacy_path.exists():
-                logger.warning(f"Using legacy checkpoint path: {legacy_path}")
-                trained_path = legacy_path
+        legacy_path = trained_dir.parent / "model.pth"
+        if (
+            self._checkpoint_name == "model.pth"
+            and not checkpoint_path.exists()
+            and self._backbone_key == "efficientnet_b0"
+            and legacy_path.exists()
+        ):
+            checkpoint_path = legacy_path
+            logger.warning("Legacy vision checkpoint found; strict MIL compatibility is required")
 
-            use_pretrained = not trained_path.exists()
+        self._checkpoint_path = checkpoint_path
+        use_pretrained = not checkpoint_path.exists()
+        self._backbone = timm.create_model(
+            spec.timm_name,
+            pretrained=use_pretrained,
+            num_classes=0,
+            global_pool="",
+        ).to(self._device)
+        feature_dim = int(self._backbone.num_features)
+        self._aggregator = PreNormMILAggregator(
+            feature_dim=feature_dim,
+            num_regions=len(REGION_NAMES),
+        ).to(self._device)
+        self._contrastive_head = ContrastiveHead(D_MODEL).to(self._device)
+        self._classifier_head = build_classifier_head().to(self._device)
+        self._transform = get_region_tensor_transform(spec.timm_name, spec.default_input_size)
 
-            self._backbone = timm.create_model(
-                spec.timm_name,
-                pretrained=use_pretrained,
-                num_classes=0,
-                global_pool="",
-            )
-            self._backbone.eval()
-            self._backbone.to(self._device)
-
-            feature_dim = self._backbone.num_features
-            d_model = 384
-            self._aggregator = PreNormMILAggregator(
-                feature_dim=feature_dim,
-                num_regions=len(REGION_NAMES),
-                d_model=d_model,
-                num_heads=6,
-                num_layers=3,
-                dropout=0.1
-            )
-            self._aggregator.to(self._device)
-
-            self._contrastive_head = ContrastiveHead(d_model, proj_dim=128)
-            self._contrastive_head.to(self._device)
-
-            self._classifier_head = nn.Sequential(
-                nn.LayerNorm(d_model),
-                nn.Linear(d_model, 256),
-                nn.GELU(),
-                nn.Dropout(0.2),
-                nn.Linear(256, 2),
-            )
-            self._classifier_head.to(self._device)
-
-            # Load checkpoint strictly
-            if trained_path.exists():
-                state = torch.load(str(trained_path), map_location=self._device, weights_only=True)
-                
-                # Checkpoint format version check
-                self._checkpoint_format_version = state.get("checkpoint_format_version", 1)
-                self._architecture_version = state.get("architecture_version", "prenorm_mil_v1")
-                
-                if "backbone_key" in state and state["backbone_key"] != self._backbone_key:
-                    if self._backbone_key != "efficientnet_b0":
-                        raise ValueError(f"Checkpoint backbone ({state.get('backbone_key')}) mismatches runtime ({self._backbone_key}). Cross-backbone loading rejected.")
-
-                # Ensure dimensions match
-                if "d_model" in state and state["d_model"] != d_model:
-                    raise ValueError(f"Checkpoint d_model mismatch.")
-                if "region_names" in state and state["region_names"] != list(REGION_NAMES):
-                    raise ValueError(f"Checkpoint region_names mismatch.")
-
-                load_errors = False
-                if "backbone" in state:
-                    self._backbone.load_state_dict(state["backbone"], strict=True)
-                else:
-                    load_errors = True
-                    
-                if "aggregator" in state:
-                    self._aggregator.load_state_dict(state["aggregator"], strict=True)
-                elif "attention_head" in state and self._backbone_key == "efficientnet_b0":
-                    logger.warning("Legacy attention_head detected. Partial load only.")
-                    load_errors = True
-                else:
-                    load_errors = True
-                    
-                if "classifier_head" in state:
-                    self._classifier_head.load_state_dict(state["classifier_head"], strict=True)
-                else:
-                    load_errors = True
-                    
-                if "contrastive_head" in state:
-                    self._contrastive_head.load_state_dict(state["contrastive_head"], strict=True)
-                
-                if not load_errors:
-                    self._trained_weights_loaded = True
-                    logger.info(f"✅ Loaded fine-tuned weights successfully from {trained_path}")
-                else:
-                    logger.warning(f"Incomplete weights loaded; classifier signal degraded.")
-
-                # Load Calibration
-                if "calibration" in state:
-                    cal = state["calibration"]
-                    self._temperature = cal.get("temperature", 1.0)
-                    self._counterfeit_threshold = cal.get("counterfeit_threshold", 0.5)
-                    self._uncertainty_margin = cal.get("uncertainty_margin", 0.1)
-                    self._calibration_loaded = True
-                    self._threshold_source = "checkpoint"
-                elif metadata_path.exists():
-                    try:
-                        with open(metadata_path, 'r') as f:
-                            meta = json.load(f)
-                        if "calibration" in meta:
-                            cal = meta["calibration"]
-                            self._temperature = cal.get("temperature", 1.0)
-                            self._counterfeit_threshold = cal.get("threshold", cal.get("counterfeit_threshold", 0.5))
-                            self._uncertainty_margin = cal.get("uncertainty_margin", 0.1)
-                            self._calibration_loaded = True
-                            self._threshold_source = "metadata"
-                    except Exception as e:
-                        logger.warning(f"Failed to read calibration metadata: {e}")
-
-            else:
-                logger.warning(f"No verified weights found for {self._backbone_key}")
-
-            self._backbone.eval()
-            self._aggregator.eval()
-            self._contrastive_head.eval()
-            self._classifier_head.eval()
-            self._initialized = True
-
-        except Exception as e:
-            logger.error(f"Failed to initialize robust hybrid classifier: {e}")
-            raise
-
-    def _apply_calibration(self, logits: torch.Tensor) -> tuple[float, float, str]:
-        """Applies temperature scaling and calibrated thresholds."""
-        logits = logits / self._temperature
-        probs = F.softmax(logits, dim=1).cpu().numpy()[0]
-        gs, cs = float(probs[0]), float(probs[1])
-        
-        if cs >= self._counterfeit_threshold + self._uncertainty_margin:
-            verdict = "counterfeit"
-        elif cs <= self._counterfeit_threshold - self._uncertainty_margin:
-            verdict = "genuine"
+        if checkpoint_path.exists():
+            try:
+                state = torch.load(
+                    str(checkpoint_path), map_location=self._device, weights_only=True
+                )
+                self._validate_checkpoint(state, spec.timm_name, feature_dim)
+                self._checkpoint_format_version = state["checkpoint_format_version"]
+                self._architecture_version = state["architecture_version"]
+                self._backbone.load_state_dict(state["backbone"], strict=True)
+                self._aggregator.load_state_dict(state["aggregator"], strict=True)
+                self._classifier_head.load_state_dict(state["classifier_head"], strict=True)
+                self._contrastive_head.load_state_dict(state["contrastive_head"], strict=True)
+                self._load_calibration(state, metadata_path)
+                self._trained_weights_loaded = True
+                self._model_status = (
+                    "verified" if self._checkpoint_name == "model.pth" else "candidate"
+                )
+                logger.info("Loaded verified vision checkpoint from %s", checkpoint_path)
+            except Exception as exc:
+                self._model_status = "incompatible_checkpoint"
+                logger.error("Vision checkpoint rejected: %s", exc)
         else:
-            verdict = "uncertain"
-            
-        return gs, cs, verdict
+            self._model_status = "weights_required"
+            logger.warning("No trained checkpoint found for %s", self._backbone_key)
+
+        for module in (
+            self._backbone,
+            self._aggregator,
+            self._contrastive_head,
+            self._classifier_head,
+        ):
+            module.eval()
+        self._initialized = True
+
+    def _validate_checkpoint(self, state: dict, timm_name: str, feature_dim: int) -> None:
+        required = {
+            "checkpoint_format_version",
+            "architecture_version",
+            "backbone_key",
+            "timm_name",
+            "feature_dim",
+            "d_model",
+            "num_heads",
+            "num_layers",
+            "num_regions",
+            "region_names",
+            "num_classes",
+            "backbone",
+            "aggregator",
+            "classifier_head",
+            "contrastive_head",
+            "calibration",
+        }
+        missing = sorted(required.difference(state))
+        if missing:
+            raise ValueError(f"Checkpoint is incomplete; missing keys: {missing}")
+
+        expected = {
+            "checkpoint_format_version": CHECKPOINT_FORMAT_VERSION,
+            "architecture_version": ARCHITECTURE_VERSION,
+            "backbone_key": self._backbone_key,
+            "timm_name": timm_name,
+            "feature_dim": feature_dim,
+            "d_model": D_MODEL,
+            "num_heads": NUM_HEADS,
+            "num_layers": NUM_LAYERS,
+            "num_regions": len(REGION_NAMES),
+            "region_names": list(REGION_NAMES),
+            "num_classes": NUM_CLASSES,
+        }
+        mismatches = {
+            key: (expected_value, state.get(key))
+            for key, expected_value in expected.items()
+            if state.get(key) != expected_value
+        }
+        if mismatches:
+            raise ValueError(f"Checkpoint architecture mismatch: {mismatches}")
+
+    def _load_calibration(self, state: dict, metadata_path: Path) -> None:
+        calibration = dict(state.get("calibration") or {})
+        if not calibration and metadata_path.exists():
+            with metadata_path.open("r", encoding="utf-8") as handle:
+                calibration = dict(json.load(handle).get("calibration") or {})
+                self._threshold_source = "metadata"
+        else:
+            self._threshold_source = "checkpoint"
+
+        temperature = float(calibration.get("temperature", 1.0))
+        threshold = float(
+            calibration.get("counterfeit_threshold", calibration.get("threshold", 0.5))
+        )
+        margin = float(calibration.get("uncertainty_margin", 0.05))
+        if temperature <= 0:
+            raise ValueError("Calibration temperature must be positive")
+        if not 0.0 < threshold < 1.0:
+            raise ValueError("Counterfeit threshold must be between 0 and 1")
+        if not 0.0 <= margin < 0.5:
+            raise ValueError("Uncertainty margin must be in [0, 0.5)")
+
+        self._temperature = temperature
+        self._counterfeit_threshold = threshold
+        self._uncertainty_margin = margin
+        self._calibration_loaded = True
+
+    def _probabilities(self, logits: torch.Tensor) -> tuple[float, float]:
+        probs = F.softmax(logits / self._temperature, dim=1).detach().cpu().numpy()[0]
+        return float(probs[0]), float(probs[1])
+
+    def _decision(self, counterfeit_probability: float) -> str:
+        upper = self._counterfeit_threshold + self._uncertainty_margin
+        lower = self._counterfeit_threshold - self._uncertainty_margin
+        if counterfeit_probability >= upper:
+            return "counterfeit"
+        if counterfeit_probability <= lower:
+            return "genuine"
+        return "uncertain"
+
+    def _unavailable_region_result(self) -> dict:
+        return {
+            "genuine_score": 0.5,
+            "counterfeit_score": 0.5,
+            "verdict": "unavailable",
+            "embedding": None,
+            "feature_dim": 0,
+            "model_available": False,
+            "backbone_key": self._backbone_key,
+        }
 
     @torch.no_grad()
     def classify_region(self, region: np.ndarray) -> dict:
-        """Classify a single currency region."""
         if not self._initialized:
             raise RuntimeError("Classifier not initialized")
         if not self._trained_weights_loaded:
-            return {
-                "genuine_score": 0.5,
-                "counterfeit_score": 0.5,
-                "verdict": "unavailable",
-                "embedding": None,
-                "feature_dim": 0,
-                "model_available": False,
-            }
+            return self._unavailable_region_result()
 
-        if len(region.shape) == 2:
-            region = cv2.cvtColor(region, cv2.COLOR_GRAY2RGB)
-        elif region.shape[2] == 4:
-            region = cv2.cvtColor(region, cv2.COLOR_BGRA2RGB)
-        else:
-            region = cv2.cvtColor(region, cv2.COLOR_BGR2RGB)
-
-        tensor = self._transform(Image.fromarray(region)).unsqueeze(0).to(self._device)
-        cnn_features = self._backbone(tensor) 
-        cnn_features = cnn_features.mean(dim=(2, 3)).unsqueeze(1)
-        
-        mask = torch.zeros((1, 1), dtype=torch.bool, device=self._device)
-        attended_features = self._aggregator(cnn_features, mask)
-        embedding = self._contrastive_head(attended_features).cpu().numpy()[0]
-        logits = self._classifier_head(attended_features)
-        
-        gs, cs, verdict = self._apply_calibration(logits)
-
+        rgb = self._to_rgb(region)
+        tensor = self._transform(Image.fromarray(rgb)).unsqueeze(0).to(self._device)
+        pooled = _pool_backbone_output(self._backbone(tensor)).unsqueeze(1)
+        missing_mask = torch.zeros((1, 1), dtype=torch.bool, device=self._device)
+        attended = self._aggregator(pooled, missing_mask)
+        logits = self._classifier_head(attended)
+        genuine, counterfeit = self._probabilities(logits)
+        embedding = self._contrastive_head(attended).cpu().numpy()[0]
         return {
-            "genuine_score": round(gs, 4),
-            "counterfeit_score": round(cs, 4),
-            "verdict": verdict,
+            "genuine_score": round(genuine, 4),
+            "counterfeit_score": round(counterfeit, 4),
+            "verdict": self._decision(counterfeit),
             "embedding": embedding,
-            "feature_dim": attended_features.shape[-1],
+            "feature_dim": int(attended.shape[-1]),
+            "model_available": True,
+            "backbone_key": self._backbone_key,
+            "calibration_loaded": self._calibration_loaded,
         }
 
     @torch.no_grad()
     def classify_all_regions(self, regions: dict[str, np.ndarray]) -> dict:
-        """
-        Robustly classify all extracted regions using the Pre-Norm MIL Aggregator.
-        Provides detailed explainability on region importance and masking logic.
-        """
         if not self._initialized:
             raise RuntimeError("Classifier not initialized")
         if not self._trained_weights_loaded:
@@ -340,92 +387,70 @@ class HybridForgeryClassifier:
                 "verdict": "unavailable",
                 "suspicious_regions": [],
                 "missing_regions": [],
+                "cross_region_attention": False,
                 "cross_region_aggregation": True,
                 "region_importance_method": "single_region_ablation",
                 "attention_weights_available": False,
                 "model_available": False,
+                "backbone_key": self._backbone_key,
             }
 
-        region_inputs = []
-        missing_regions = []
-        missing_mask = []
-        
-        # Determine tensor shape from transform
         spec = get_backbone_spec(self._backbone_key)
-        h, w = spec.default_input_size, spec.default_input_size
-        dummy_tensor = torch.zeros((3, h, w))
+        blank = torch.zeros((3, spec.default_input_size, spec.default_input_size))
+        inputs: list[torch.Tensor] = []
+        missing: list[bool] = []
+        missing_names: list[str] = []
 
         for name in REGION_NAMES:
-            region_img = regions.get(name)
-            if region_img is None or region_img.size == 0:
-                missing_regions.append(name)
-                region_inputs.append(dummy_tensor)
-                missing_mask.append(True)
+            image = regions.get(name)
+            if image is None or image.size == 0:
+                inputs.append(blank)
+                missing.append(True)
+                missing_names.append(name)
                 continue
-                
             try:
-                if len(region_img.shape) == 2:
-                    region_img = cv2.cvtColor(region_img, cv2.COLOR_GRAY2RGB)
-                elif region_img.shape[2] == 4:
-                    region_img = cv2.cvtColor(region_img, cv2.COLOR_BGRA2RGB)
-                else:
-                    region_img = cv2.cvtColor(region_img, cv2.COLOR_BGR2RGB)
+                inputs.append(self._transform(Image.fromarray(self._to_rgb(image))))
+                missing.append(False)
+            except Exception as exc:
+                logger.warning("Region %s preprocessing failed: %s", name, exc)
+                inputs.append(blank)
+                missing.append(True)
+                missing_names.append(name)
 
-                region_inputs.append(self._transform(Image.fromarray(region_img)))
-                missing_mask.append(False)
-            except Exception as e:
-                logger.warning(f"Failed to extract features for '{name}': {e}")
-                missing_regions.append(name)
-                region_inputs.append(dummy_tensor)
-                missing_mask.append(True)
+        batch = torch.stack(inputs).to(self._device)
+        pooled = _pool_backbone_output(self._backbone(batch)).unsqueeze(0)
+        mask = torch.tensor([missing], dtype=torch.bool, device=self._device)
+        attended = self._aggregator(pooled, mask)
+        logits = self._classifier_head(attended)
+        genuine, counterfeit = self._probabilities(logits)
+        overall = self._decision(counterfeit)
 
-        batch = torch.stack(region_inputs, dim=0).to(self._device)
-        features = self._backbone(batch)
-        features = features.mean(dim=(2, 3)).unsqueeze(0)
-        mask_tensor = torch.tensor([missing_mask], dtype=torch.bool, device=self._device)
-
-        attended = self._aggregator(features, mask_tensor)
-        global_logits = self._classifier_head(attended)
-        fused_genuine, fused_counterfeit, overall = self._apply_calibration(global_logits)
-        
-        region_scores = {}
-        suspicious = []
-        # Robust explainability: single region isolation scoring
-        for i, name in enumerate(REGION_NAMES):
-            if missing_mask[i]:
+        region_scores: dict[str, dict] = {}
+        suspicious: list[str] = []
+        for index, name in enumerate(REGION_NAMES):
+            if missing[index]:
                 continue
-            
-            single_mask = mask_tensor.clone()
-            single_mask[0, i] = True # Ablate this specific region
-            
-            single_attended = self._aggregator(features, single_mask)
-            single_logits = self._classifier_head(single_attended)
-            
-            # Use raw uncalibrated probs for delta to avoid margin distortion
-            sp = F.softmax(single_logits, dim=1).cpu().numpy()[0]
-            sp_cs = float(sp[1])
-            gp = F.softmax(global_logits, dim=1).cpu().numpy()[0]
-            gp_cs = float(gp[1])
-            
-            delta = gp_cs - sp_cs
-            
-            _, _, single_verdict = self._apply_calibration(single_logits)
-            
+            ablated_mask = mask.clone()
+            ablated_mask[0, index] = True
+            ablated = self._aggregator(pooled, ablated_mask)
+            _, ablated_counterfeit = self._probabilities(self._classifier_head(ablated))
+            delta = counterfeit - ablated_counterfeit
             region_scores[name] = {
                 "importance_delta": round(delta, 4),
-                "importance_magnitude": round(abs(delta), 4)
+                "importance_magnitude": round(abs(delta), 4),
             }
-            if delta > 0.05: # Removing it caused counterfeit score to drop significantly
+            if delta >= 0.05:
                 suspicious.append(name)
 
         return {
             "region_scores": region_scores,
-            "fused_counterfeit_score": round(fused_counterfeit, 4),
-            "fused_genuine_score": round(fused_genuine, 4),
+            "fused_counterfeit_score": round(counterfeit, 4),
+            "fused_genuine_score": round(genuine, 4),
             "verdict": overall,
             "suspicious_regions": suspicious,
-            "missing_regions": missing_regions,
+            "missing_regions": missing_names,
             "region_order": list(REGION_NAMES),
+            "cross_region_attention": False,
             "cross_region_aggregation": True,
             "region_importance_method": "single_region_ablation",
             "attention_weights_available": False,
@@ -434,39 +459,49 @@ class HybridForgeryClassifier:
             "calibration_loaded": self._calibration_loaded,
             "counterfeit_threshold": self._counterfeit_threshold,
             "uncertainty_margin": self._uncertainty_margin,
-            "threshold_source": self._threshold_source
+            "threshold_source": self._threshold_source,
         }
+
+    @staticmethod
+    def _to_rgb(image: np.ndarray) -> np.ndarray:
+        if image.ndim == 2:
+            return cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+        if image.shape[2] == 4:
+            return cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
+        return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     @torch.no_grad()
     def compute_similarity(self, region1: np.ndarray, region2: np.ndarray) -> float:
-        """Compute forensic SimCLR contrastive similarity between two regions."""
-        emb1 = self.classify_region(region1)["embedding"]
-        emb2 = self.classify_region(region2)["embedding"]
-        similarity = float(np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2)))
-        return round(similarity, 4)
+        first = self.classify_region(region1).get("embedding")
+        second = self.classify_region(region2).get("embedding")
+        if first is None or second is None:
+            raise RuntimeError("Similarity unavailable because trained embeddings are not loaded")
+        denominator = float(np.linalg.norm(first) * np.linalg.norm(second))
+        if denominator == 0.0:
+            return 0.0
+        return round(float(np.dot(first, second) / denominator), 4)
 
     def get_stats(self) -> dict:
-        status = "not_initialized"
-        if self._initialized:
-            if self._trained_weights_loaded:
-                status = "verified" if self._backbone_key == "efficientnet_b0" else "candidate"
-            else:
-                status = "weights_required"
-                
+        status = self._model_status if self._initialized else "not_initialized"
         return {
             "status": status,
+            "model_status": status,
             "trained_weights_loaded": self._trained_weights_loaded,
             "architecture": "Pre-Norm MIL Aggregator",
             "backbone_key": self._backbone_key,
+            "checkpoint_path": str(self._checkpoint_path) if self._checkpoint_path else None,
             "checkpoint_format_version": self._checkpoint_format_version,
             "architecture_version": self._architecture_version,
             "calibration_loaded": self._calibration_loaded,
+            "promotion_status": self._promotion_status,
             "region_count": len(REGION_NAMES),
-            "preprocessing_source": "timm_resolve_model_data_config",
+            "preprocessing_source": "timm_pretrained_cfg",
             "device": str(self._device),
         }
 
+
 _classifier: Optional[HybridForgeryClassifier] = None
+
 
 def get_forgery_classifier() -> HybridForgeryClassifier:
     global _classifier

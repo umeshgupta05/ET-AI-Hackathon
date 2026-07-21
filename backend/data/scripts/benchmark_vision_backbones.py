@@ -1,157 +1,250 @@
-"""
-Benchmark Vision Backbones
-Runs comprehensive evaluation across supported architectures.
-Compares Accuracy, Safety, Latency, Memory, and Deployability.
-"""
-import sys
-import os
+"""Compare supported vision backbones without misreporting unavailable models."""
+
+from __future__ import annotations
+
 import argparse
-import time
-import json
+import asyncio
 import csv
+import json
+import statistics
+import sys
+import time
 from pathlib import Path
 
-# Fix Windows encoding
-if hasattr(sys.stdout, 'reconfigure'): sys.stdout.reconfigure(encoding='utf-8')
-if hasattr(sys.stderr, 'reconfigure'): sys.stderr.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-import torch
+import cv2
 import numpy as np
-from data.scripts.train_vision_classifier import train, OUTPUT_DIR
-from models.vision.backbone_registry import BACKBONE_REGISTRY
-from models.vision.classifier import get_forgery_classifier
-from models.vision.detector import REGION_NAMES
+import torch
 
-def measure_latency_and_memory(backbone_key, device):
-    classifier = get_forgery_classifier()
-    classifier._backbone_key = backbone_key
-    
+from data.scripts.train_vision_classifier import OUTPUT_DIR, create_parser, train
+from models.vision.backbone_registry import BACKBONE_REGISTRY
+from models.vision.classifier import HybridForgeryClassifier, REGION_NAMES
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * percentile))))
+    return float(ordered[index])
+
+
+def _checkpoint_name(backbone_key: str) -> str | None:
+    directory = OUTPUT_DIR / backbone_key
+    if (directory / "model_candidate.pth").exists():
+        return "model_candidate.pth"
+    if (directory / "model.pth").exists():
+        return "model.pth"
+    return None
+
+
+def measure_runtime(backbone_key: str, iterations: int) -> dict:
+    checkpoint_name = _checkpoint_name(backbone_key)
+    if checkpoint_name is None:
+        return {
+            "status": "NOT_RUN",
+            "reason": "No candidate or active checkpoint",
+        }
+
+    classifier = HybridForgeryClassifier(
+        backbone_key=backbone_key, checkpoint_name=checkpoint_name
+    )
     try:
-        import asyncio
         asyncio.run(classifier.initialize())
-    except Exception as e:
-        return None, None
-        
-    if not classifier._trained_weights_loaded and not classifier._initialized:
-        return None, None
-        
-    dummy_region = np.zeros((224, 224, 3), dtype=np.uint8)
-    dummy_regions = {name: dummy_region for name in REGION_NAMES}
-    
-    # Warmup
+    except Exception as exc:
+        return {"status": "FAILED", "reason": str(exc)}
+    if not classifier._trained_weights_loaded:
+        return {
+            "status": "FAILED",
+            "reason": classifier.get_stats().get("model_status", "checkpoint unavailable"),
+        }
+
+    size = BACKBONE_REGISTRY[backbone_key].default_input_size
+    dummy_bgr = np.zeros((size, size, 3), dtype=np.uint8)
+    dummy_regions = {name: dummy_bgr.copy() for name in REGION_NAMES}
+
     for _ in range(3):
+        classifier.classify_region(dummy_bgr)
         classifier.classify_all_regions(dummy_regions)
-        
-    if device.type == "cuda":
+    if classifier._device.type == "cuda":
         torch.cuda.synchronize()
         torch.cuda.reset_peak_memory_stats()
-        
-    latencies = []
-    for _ in range(10):
-        t0 = time.time()
-        classifier.classify_all_regions(dummy_regions)
-        if device.type == "cuda": torch.cuda.synchronize()
-        t1 = time.time()
-        latencies.append((t1 - t0) * 1000)
-        
-    peak_mem = torch.cuda.max_memory_allocated() / (1024**2) if device.type == "cuda" else 0.0
-    
-    return np.median(latencies), peak_mem
 
-def main():
+    single_latencies: list[float] = []
+    bag_latencies: list[float] = []
+    for _ in range(iterations):
+        start = time.perf_counter()
+        classifier.classify_region(dummy_bgr)
+        if classifier._device.type == "cuda":
+            torch.cuda.synchronize()
+        single_latencies.append((time.perf_counter() - start) * 1000.0)
+
+        start = time.perf_counter()
+        classifier.classify_all_regions(dummy_regions)
+        if classifier._device.type == "cuda":
+            torch.cuda.synchronize()
+        bag_latencies.append((time.perf_counter() - start) * 1000.0)
+
+    peak_memory = (
+        torch.cuda.max_memory_allocated() / (1024**2)
+        if classifier._device.type == "cuda"
+        else 0.0
+    )
+    parameter_count = sum(
+        parameter.numel()
+        for module in (
+            classifier._backbone,
+            classifier._aggregator,
+            classifier._classifier_head,
+            classifier._contrastive_head,
+        )
+        for parameter in module.parameters()
+    )
+    checkpoint_path = OUTPUT_DIR / backbone_key / checkpoint_name
+    return {
+        "status": "PASS",
+        "checkpoint": checkpoint_name,
+        "device": str(classifier._device),
+        "parameter_count": int(parameter_count),
+        "checkpoint_size_mb": checkpoint_path.stat().st_size / (1024**2),
+        "single_region_latency_ms_median": statistics.median(single_latencies),
+        "single_region_latency_ms_p95": _percentile(single_latencies, 0.95),
+        "region_bag_latency_ms_median": statistics.median(bag_latencies),
+        "region_bag_latency_ms_p95": _percentile(bag_latencies, 0.95),
+        "notes_per_second": 1000.0 / max(1e-9, statistics.median(bag_latencies)),
+        "peak_cuda_memory_mb": peak_memory,
+    }
+
+
+def read_training_metrics(backbone_key: str) -> dict:
+    directory = OUTPUT_DIR / backbone_key
+    for name in (
+        "cross_validation_metadata.json",
+        "candidate_training_metadata.json",
+        "smoke_training_metadata.json",
+    ):
+        path = directory / name
+        if path.exists():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            calibration = payload.get("calibration", {})
+            return {
+                "status": "PASS",
+                "source": name,
+                "mean_f1": payload.get("mean_f1", 0.0),
+                "mean_roc_auc": payload.get("mean_roc_auc", 0.5),
+                "mean_pr_auc": payload.get("mean_pr_auc", 0.5),
+                "counterfeit_false_accept_rate": calibration.get("far"),
+                "genuine_false_reject_rate": calibration.get("frr"),
+                "calibration_policy_satisfied": calibration.get("policy_satisfied"),
+            }
+    return {"status": "NOT_RUN", "reason": "No training metadata"}
+
+
+def optionally_run_training(backbone_key: str, smoke: bool) -> dict:
+    parser = create_parser()
+    args = parser.parse_args(
+        [
+            "--mode",
+            "cross_validate",
+            "--backbone",
+            backbone_key,
+            "--folds",
+            "2" if smoke else "5",
+            *( ["--smoke"] if smoke else [] ),
+        ]
+    )
+    start = time.perf_counter()
+    try:
+        train(args=args)
+        return {"status": "PASS", "seconds": time.perf_counter() - start}
+    except Exception as exc:
+        return {
+            "status": "FAILED",
+            "seconds": time.perf_counter() - start,
+            "reason": str(exc),
+        }
+
+
+def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--smoke", action="store_true", help="Run a quick smoke test")
+    parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--run-training", action="store_true")
+    parser.add_argument("--iterations", type=int, default=20)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUTPUT_DIR / "benchmarks",
+    )
     args = parser.parse_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
     results = {}
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    class TrainArgs:
-        def __init__(self, backbone, smoke):
-            self.mode = "cross_validate"
-            self.backbone = backbone
-            self.smoke = smoke
-            self.allow_synthetic_debug_data = False
-            self.ssl_mode = "none"
-            self.folds = 2 if smoke else 5
-            self.fold_index = None
-            self.loss = "cross_entropy"
-            self.focal_gamma = 2.0
-            self.label_smoothing = 0.0
-            self.amp = True
-            self.gradient_accumulation = 1
-            self.max_genuine_frr = 0.05
-
-    for backbone_key in BACKBONE_REGISTRY.keys():
-        print(f"\n{'='*80}\nBenchmarking Backbone: {backbone_key}\n{'='*80}")
-        t_args = TrainArgs(backbone=backbone_key, smoke=args.smoke)
-        start = time.time()
-        
-        try:
-            train(args=t_args)
-            success = True
-        except Exception as e:
-            print(f"Failed to benchmark {backbone_key}: {e}")
-            success = False
-            
-        elapsed = time.time() - start
-        
-        # Read generated metadata
-        meta_file = "smoke_training_metadata.json" if args.smoke else "candidate_training_metadata.json"
-        meta_path = OUTPUT_DIR / backbone_key / meta_file
-        
-        meta = {}
-        if meta_path.exists():
-            with open(meta_path, "r") as f: meta = json.load(f)
-            
-        latency_ms, peak_mem_mb = measure_latency_and_memory(backbone_key, device)
-        
-        # Parameter count
-        param_count = 0
-        model_size_mb = 0
-        model_path = OUTPUT_DIR / backbone_key / ("model_smoke.pth" if args.smoke else "model_candidate.pth")
-        if model_path.exists():
-            model_size_mb = model_path.stat().st_size / (1024**2)
-            try:
-                state = torch.load(model_path, weights_only=True, map_location="cpu")
-                param_count = sum(p.numel() for k in ["backbone", "aggregator", "classifier_head"] if k in state for p in state[k].values())
-            except: pass
-            
+    for backbone_key in BACKBONE_REGISTRY:
+        training_run = (
+            optionally_run_training(backbone_key, args.smoke)
+            if args.run_training
+            else {"status": "NOT_RUN", "reason": "--run-training not supplied"}
+        )
         results[backbone_key] = {
-            "success": success,
-            "training_time_seconds": elapsed,
-            "mean_f1": meta.get("mean_f1", 0.0),
-            "mean_roc_auc": meta.get("mean_roc_auc", 0.5),
-            "mean_pr_auc": meta.get("mean_pr_auc", 0.5),
-            "calibrated_frr": meta.get("calibration", {}).get("frr", 1.0),
-            "latency_ms": latency_ms or 0.0,
-            "peak_memory_mb": peak_mem_mb or 0.0,
-            "param_count": param_count,
-            "model_size_mb": model_size_mb
+            "training_run": training_run,
+            "metrics": read_training_metrics(backbone_key),
+            "runtime": measure_runtime(backbone_key, args.iterations),
         }
-        
-    print("\nBenchmark Complete!")
-    
-    # Save outputs
-    with open("vision_backbone_benchmark.json", "w") as f: json.dump(results, f, indent=2)
-    
-    with open("vision_backbone_benchmark.csv", "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["backbone", "success", "mean_f1", "mean_roc_auc", "mean_pr_auc", "latency_ms", "peak_memory_mb", "param_count", "model_size_mb", "training_time_seconds"])
+
+    json_path = args.output_dir / "vision_backbone_benchmark.json"
+    csv_path = args.output_dir / "vision_backbone_benchmark.csv"
+    markdown_path = args.output_dir / "vision_backbone_benchmark.md"
+    json_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
+
+    rows = []
+    for backbone_key, result in results.items():
+        metrics = result["metrics"]
+        runtime = result["runtime"]
+        rows.append(
+            {
+                "backbone": backbone_key,
+                "metrics_status": metrics.get("status"),
+                "runtime_status": runtime.get("status"),
+                "mean_f1": metrics.get("mean_f1"),
+                "mean_roc_auc": metrics.get("mean_roc_auc"),
+                "mean_pr_auc": metrics.get("mean_pr_auc"),
+                "counterfeit_far": metrics.get("counterfeit_false_accept_rate"),
+                "genuine_frr": metrics.get("genuine_false_reject_rate"),
+                "parameter_count": runtime.get("parameter_count"),
+                "checkpoint_size_mb": runtime.get("checkpoint_size_mb"),
+                "bag_latency_median_ms": runtime.get("region_bag_latency_ms_median"),
+                "bag_latency_p95_ms": runtime.get("region_bag_latency_ms_p95"),
+                "peak_cuda_memory_mb": runtime.get("peak_cuda_memory_mb"),
+            }
+        )
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
         writer.writeheader()
-        for k, v in results.items():
-            row = {"backbone": k}
-            row.update(v)
-            writer.writerow(row)
-            
-    with open("vision_backbone_benchmark.md", "w") as f:
-        f.write("# Vision Backbone Benchmark Results\n\n")
-        f.write("| Backbone | Success | Mean F1 | ROC-AUC | Latency (ms) | Peak Mem (MB) | Params | Size (MB) |\n")
-        f.write("|----------|---------|---------|---------|--------------|---------------|--------|-----------|\n")
-        for k, v in results.items():
-            f.write(f"| {k} | {v['success']} | {v['mean_f1']:.3f} | {v['mean_roc_auc']:.3f} | {v['latency_ms']:.1f} | {v['peak_memory_mb']:.1f} | {v['param_count']:,} | {v['model_size_mb']:.1f} |\n")
-            print(f"{k}: Success={v['success']}, F1={v['mean_f1']:.3f}, Latency={v['latency_ms']:.1f}ms")
-            
+        writer.writerows(rows)
+
+    markdown = [
+        "# Vision Backbone Benchmark",
+        "",
+        "No winner is declared unless both accuracy and runtime evidence are available.",
+        "",
+        "| Backbone | Metrics | Runtime | Mean F1 | ROC-AUC | FAR | FRR | Bag median ms | Bag p95 ms |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        markdown.append(
+            "| {backbone} | {metrics_status} | {runtime_status} | {mean_f1} | "
+            "{mean_roc_auc} | {counterfeit_far} | {genuine_frr} | "
+            "{bag_latency_median_ms} | {bag_latency_p95_ms} |".format(**row)
+        )
+    markdown_path.write_text("\n".join(markdown), encoding="utf-8")
+    print(f"Wrote benchmark artifacts to {args.output_dir}")
+
+
 if __name__ == "__main__":
     main()
