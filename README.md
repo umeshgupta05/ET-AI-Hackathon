@@ -33,7 +33,7 @@ This is a research prototype. It does not automatically file police complaints, 
 | Geospatial command centre | Hotspots, feed pollers, patrol/resource plan, inter-district sharing | Authorized NCRB/state feeds are required for operational deployment |
 | Citizen multi-channel shield | React app, WhatsApp media/text, IVR speech/DTMF, 12 languages, reporting workflow | Public provider numbers, signed webhooks, and an authorized reporting bridge require credentials |
 
-## Final Training Benchmarks (July 2026)
+## Final Training Benchmarks
 
 Our custom-trained currency forgery detection backbones (via `Pre-Norm MIL Aggregator`) achieved the following cross-validated metrics on the Kaggle-augmented Indian Currency dataset (1,849 samples):
 
