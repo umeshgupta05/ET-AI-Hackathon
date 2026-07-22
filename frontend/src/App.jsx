@@ -62,7 +62,30 @@ function loadGuestHistory() {
 
 function saveGuestHistoryItem(item) {
   const stored = loadGuestHistory();
-  localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify([item, ...stored].slice(0, 50)));
+  const cleanItem = JSON.parse(JSON.stringify(item));
+  
+  if (cleanItem.result) {
+    const stripLargeData = (obj) => {
+      for (const key in obj) {
+        if (typeof obj[key] === 'string' && obj[key].length > 10000) {
+          obj[key] = "[Image/Data omitted to save storage]";
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+          stripLargeData(obj[key]);
+        }
+      }
+    };
+    stripLargeData(cleanItem.result);
+  }
+  
+  try {
+    localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify([cleanItem, ...stored].slice(0, 50)));
+  } catch (e) {
+    try {
+      localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify([cleanItem, ...stored].slice(0, 10)));
+    } catch (e2) {
+      console.warn("Storage quota exceeded even after trimming.");
+    }
+  }
 }
 
 function historyMatchesQuery(item, query) {

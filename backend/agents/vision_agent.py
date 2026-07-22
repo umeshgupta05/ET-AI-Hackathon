@@ -59,6 +59,7 @@ class VisionAgent:
         self._explainability = get_explainability_engine()
         self._clip = get_clip_scorer()
         self._llm = get_llm_client()
+        self._ocr_reader = None
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -71,8 +72,15 @@ class VisionAgent:
         await self._forensics.initialize()
         await self._explainability.initialize()
         await self._clip.initialize()
+        
+        # Initialize lightweight local OCR
+        import easyocr
+        import torch
+        gpu = torch.cuda.is_available()
+        self._ocr_reader = easyocr.Reader(['en'], gpu=gpu)
+        
         self._initialized = True
-        logger.info(" Vision Agent ready (9 AI techniques incl. CLIP when available)")
+        logger.info(" Vision Agent ready (9 AI techniques incl. CLIP and local EasyOCR)")
 
     async def analyze(
         self,
@@ -111,6 +119,16 @@ class VisionAgent:
         capture_context = context or {}
         capture_mode = str(capture_context.get("capture_mode", "rgb")).lower().strip()
         clip_result = self._clip.score(note_crop)
+        
+        # Fast local OCR check
+        try:
+            text_results = self._ocr_reader.readtext(note_crop, detail=0, paragraph=True)
+            ocr_text = " ".join(text_results).upper()
+            ocr_is_fake = any(word in ocr_text for word in ["400", "KALPANIK", "SPECIMEN", "CHURAN", "CHILDREN", "TESTING"])
+        except Exception as e:
+            logger.warning(f"Local OCR failed: {e}")
+            ocr_is_fake = False
+            
         candidate = validate_currency_candidate(
             image, note_crop, detection, clip_result, capture_mode=capture_mode
         )
@@ -225,7 +243,12 @@ class VisionAgent:
         else:
             fused_score = classifier_score * 0.60 + forensic_score * 0.40
 
-        if fused_score > 0.65:
+        # Local OCR strict denominator check
+        if locals().get("ocr_is_fake", False):
+            fused_score = 0.99
+            verdict = "likely_counterfeit"
+            logger.warning("Local EasyOCR triggered strict denomination veto. Forcing counterfeit verdict.")
+        elif fused_score > 0.65:
             verdict = "likely_counterfeit"
         elif fused_score < 0.35:
             verdict = "likely_genuine"

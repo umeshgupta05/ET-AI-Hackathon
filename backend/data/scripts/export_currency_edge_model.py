@@ -16,7 +16,7 @@ import torch.nn as nn
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from models.vision.classifier import TransformerAttentionHead
+from models.vision.classifier import PreNormMILAggregator
 from models.vision.detector import CURRENCY_REGIONS
 
 
@@ -46,13 +46,19 @@ def main() -> None:
         raise FileNotFoundError(checkpoint_path)
     state = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     backbone = timm.create_model("efficientnet_b0", pretrained=False, num_classes=0, global_pool="")
-    attention = TransformerAttentionHead(backbone.num_features, num_heads=8, num_layers=2)
+    attention = PreNormMILAggregator(backbone.num_features, num_regions=REGION_COUNT)
     classifier = nn.Sequential(
-        nn.Linear(attention.proj_dim, 512), nn.GELU(), nn.Dropout(0.3),
-        nn.Linear(512, 128), nn.GELU(), nn.Dropout(0.2), nn.Linear(128, 2),
+        nn.LayerNorm(attention.d_model),
+        nn.Linear(attention.d_model, 256),
+        nn.GELU(),
+        nn.Dropout(0.2),
+        nn.Linear(256, 128),
+        nn.GELU(),
+        nn.Dropout(0.2),
+        nn.Linear(128, 2),
     )
     backbone.load_state_dict(state["backbone"])
-    attention.load_state_dict(state["attention_head"])
+    attention.load_state_dict(state["aggregator"])
     classifier.load_state_dict(state["classifier_head"])
     model = EdgeCurrencyModel(backbone, attention, classifier).eval()
     example = torch.zeros(1, REGION_COUNT, 3, 224, 224)

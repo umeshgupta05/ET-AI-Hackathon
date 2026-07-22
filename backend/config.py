@@ -61,7 +61,7 @@ class OpenRouterConfig:
     # Kimi K2.5 is the primary reasoning, routing, and multimodal model.
     reasoning_model: str = "moonshotai/kimi-k2.5"
     # Free Kimi fallback, tried before leaving OpenRouter for Groq.
-    kimi_free_fallback_model: str = "moonshotai/kimi-k2.6:free"
+    kimi_free_fallback_model: str = "meta-llama/llama-3.2-11b-vision-instruct:free"
     # Free auto-router remains available for lightweight fallback calls.
     free_router: str = "openrouter/free"
     max_rpm: int = 20

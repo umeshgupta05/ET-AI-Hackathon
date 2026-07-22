@@ -21,6 +21,7 @@ Pillow==11.2.1
 pytorch-grad-cam==1.5.4
 # CLIP for deepfake document detection
 open-clip-torch==2.32.0
+easyocr==1.7.2
 
 # ─── Speech AI ──────────────────────────────────────
 transformers==4.52.4

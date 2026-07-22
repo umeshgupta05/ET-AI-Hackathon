@@ -28,6 +28,7 @@ class CLIPVisionScorer:
             "tampered_document": "a tampered forged document or manipulated banknote image",
             "poor_quality_scan": "a blurry low quality scan of a currency note",
             "synthetic_print": "a synthetic printed fake note with unnatural texture",
+            "invalid_currency": "a novelty fake note, toy money, or invalid imaginary denomination",
         }
 
     async def initialize(self) -> None:
@@ -85,10 +86,11 @@ class CLIPVisionScorer:
 
         prompt_scores = {label: round(float(score), 4) for label, score in zip(labels, probs)}
         risk_score = (
-            prompt_scores["counterfeit_currency"] * 0.45
-            + prompt_scores["tampered_document"] * 0.25
-            + prompt_scores["synthetic_print"] * 0.20
-            + prompt_scores["poor_quality_scan"] * 0.10
+            prompt_scores["counterfeit_currency"] * 0.35
+            + prompt_scores["invalid_currency"] * 0.35
+            + prompt_scores["tampered_document"] * 0.15
+            + prompt_scores["synthetic_print"] * 0.10
+            + prompt_scores["poor_quality_scan"] * 0.05
         )
         top_label = max(prompt_scores, key=prompt_scores.get)
         return {
